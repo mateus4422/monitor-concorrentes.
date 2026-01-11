@@ -3,7 +3,7 @@ import requests
 import json
 import os
 from apify_client import ApifyClient
-import google.generativeai as genai # <--- VOLTAMOS PARA O GOOGLE
+import google.generativeai as genai
 from datetime import datetime, timedelta
 import streamlit as st
 
@@ -12,13 +12,12 @@ DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES (CONFIGURADAS)
+# 🔐 ÁREA DE CHAVES
 # ==============================================================================
-
-# 1. CHAVE APIFY (Mantida a que funcionou)
+# 1. APIFY
 TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
 
-# 2. NOVA CHAVE GOOGLE GEMINI (Que você acabou de mandar)
+# 2. GOOGLE GEMINI (Sua chave AIza...)
 KEY_GEMINI_FIXA = "AIzaSyBzC0pjgmhKXUxrsDlO5eUPqZxfhg-gfXw"
 
 def get_keys():
@@ -72,12 +71,7 @@ def buscar_locais(termo):
     
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
-        run = client.actor("compass/crawler-google-places").call(run_input={
-            "searchStringsArray": [termo], 
-            "maxCrawledPlacesPerSearch": 5, 
-            "language": "pt-BR", 
-            "maxReviews": 0
-        })
+        run = client.actor("compass/crawler-google-places").call(run_input={"searchStringsArray": [termo], "maxCrawledPlacesPerSearch": 5, "language": "pt-BR", "maxReviews": 0})
         return client.dataset(run['defaultDatasetId']).list_items().items
     except Exception as e:
         st.error(f"❌ Erro Apify: {e}")
@@ -90,12 +84,7 @@ def baixar_reviews(url, max_reviews=100):
     
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
-        run = client.actor("compass/crawler-google-places").call(run_input={
-            "startUrls": [{"url": url}], 
-            "language": "pt-BR", 
-            "maxReviews": max_reviews, 
-            "reviewsSort": "newest"
-        })
+        run = client.actor("compass/crawler-google-places").call(run_input={"startUrls": [{"url": url}], "language": "pt-BR", "maxReviews": max_reviews, "reviewsSort": "newest"})
         items = client.dataset(run['defaultDatasetId']).list_items().items
         if not items: st.warning("⚠️ Apify não retornou dados."); return None
         return items[0]
@@ -103,48 +92,58 @@ def baixar_reviews(url, max_reviews=100):
         st.error(f"❌ Erro Crítico Apify: {str(e)}")
         return None
 
-# --- IA (GOOGLE GEMINI 1.5 FLASH) ---
+# --- IA (GOOGLE GEMINI - MÚLTIPLAS TENTATIVAS) ---
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     if not MY_GEMINI_KEY: return "⚠️ Erro: Chave Google Gemini não configurada."
     
-    # Configura para usar o Google
     genai.configure(api_key=MY_GEMINI_KEY)
     
-    try:
-        # Usa o modelo mais rápido e atual do Google
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        prompt = f"""
-        Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
-        REVIEWS A: {texto_a[:3500]}
-        REVIEWS B: {texto_b[:3500]}
-        
-        Gere relatório em Markdown:
-        ### 📊 Radar (Tags Rápidas)
-        **{nome_a}**
-        * 👍 Positivo: (3 tags)
-        * 👎 Negativo: (3 tags)
-        
-        **{nome_b}**
-        * 👍 Positivo: (3 tags)
-        * 👎 Negativo: (3 tags)
+    prompt = f"""
+    Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
+    REVIEWS A: {texto_a[:3500]}
+    REVIEWS B: {texto_b[:3500]}
+    
+    Gere relatório em Markdown:
+    ### 📊 Radar (Tags Rápidas)
+    **{nome_a}**
+    * 👍 Positivo: (3 tags)
+    * 👎 Negativo: (3 tags)
+    
+    **{nome_b}**
+    * 👍 Positivo: (3 tags)
+    * 👎 Negativo: (3 tags)
 
-        ---
-        ### 🏆 Veredito
-        (Resumo direto)
+    ---
+    ### 🏆 Veredito
+    (Resumo direto)
 
-        ### 💎 Análise de {nome_a}
-        (Pontos fortes e fracos)
+    ### 💎 Análise de {nome_a}
+    (Pontos fortes e fracos)
 
-        ### 🥊 Análise de {nome_b}
-        (Pontos fortes e fracos)
+    ### 🥊 Análise de {nome_b}
+    (Pontos fortes e fracos)
 
-        ### 🚀 Plano de Ação
-        (3 passos)
-        """
-        
-        response = model.generate_content(prompt)
-        return response.text
-        
-    except Exception as e:
-        return f"⚠️ Erro na IA (Google): {str(e)}"
+    ### 🚀 Plano de Ação
+    (3 passos)
+    """
+
+    # LISTA DE MODELOS PARA TENTAR (SE UM FALHAR, TENTA O PRÓXIMO)
+    modelos_para_tentar = [
+        'gemini-1.5-flash',       # Mais rápido e novo
+        'gemini-1.5-flash-latest',# Alias alternativo
+        'gemini-pro',             # Clássico estável
+        'gemini-1.0-pro'          # Versão legada
+    ]
+    
+    ultimo_erro = ""
+    
+    for nome_modelo in modelos_para_tentar:
+        try:
+            model = genai.GenerativeModel(nome_modelo)
+            response = model.generate_content(prompt)
+            return response.text # Se funcionou, retorna e sai da função
+        except Exception as e:
+            ultimo_erro = str(e)
+            continue # Se deu erro, tenta o próximo da lista
+            
+    return f"⚠️ IA Indisponível em todos os modelos. Último erro: {ultimo_erro}"
