@@ -11,12 +11,28 @@ import streamlit as st
 DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
+# ==============================================================================
+# 🔐 ÁREA DE CHAVES (EDITAR AQUI SE NÃO CONECTAR)
+# ==============================================================================
+# Coloque suas chaves dentro das aspas abaixo para garantir a conexão:
+TOKEN_APIFY_FIXO = "apify_api_yRzwwIYgcwqLjvf2aL0yWnyjss54F00ym2nK"  # <--- Sua chave Apify
+KEY_GEMINI_FIXA = ""       # <--- Cole sua chave do Google Gemini (AIza...) aqui
+
 def get_keys():
-    # Tenta pegar dos segredos do Streamlit, senão retorna vazio
-    try:
-        return st.secrets["MY_APIFY_TOKEN"], st.secrets["MY_GEMINI_KEY"]
-    except:
-        return "", ""
+    # 1. Tenta usar as chaves fixas acima
+    apify = TOKEN_APIFY_FIXO
+    gemini = KEY_GEMINI_FIXA
+    
+    # 2. Se estiverem vazias, tenta pegar do Streamlit Secrets (Nuvem)
+    if not apify:
+        try: apify = st.secrets["MY_APIFY_TOKEN"]
+        except: pass
+    
+    if not gemini:
+        try: gemini = st.secrets["MY_GEMINI_KEY"]
+        except: pass
+        
+    return apify, gemini
 
 MY_APIFY_TOKEN, MY_GEMINI_KEY = get_keys()
 
@@ -58,31 +74,49 @@ def get_ibge_locais(tipo, uf=None):
         return sorted([x['sigla' if tipo=='estados' else 'nome'] for x in r.json()])
     except: return []
 
-# --- APIFY ---
+# --- APIFY (GOOGLE MAPS) ---
 def buscar_locais(termo):
-    if not MY_APIFY_TOKEN: return []
+    if not MY_APIFY_TOKEN: 
+        print("ERRO: Token Apify não encontrado.")
+        return []
+    
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
-        run = client.actor("compass/crawler-google-places").call(run_input={"searchStringsArray": [termo], "maxCrawledPlacesPerSearch": 5, "language": "pt-BR", "maxReviews": 0})
+        # Busca no Google Maps
+        run = client.actor("compass/crawler-google-places").call(run_input={
+            "searchStringsArray": [termo], 
+            "maxCrawledPlacesPerSearch": 5, 
+            "language": "pt-BR", 
+            "maxReviews": 0
+        })
         return client.dataset(run['defaultDatasetId']).list_items().items
-    except: return []
+    except Exception as e:
+        print(f"Erro Apify Busca: {e}")
+        return []
 
 def baixar_reviews(url, max_reviews=100):
     if not MY_APIFY_TOKEN: return None
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
-        run = client.actor("compass/crawler-google-places").call(run_input={"startUrls": [{"url": url}], "language": "pt-BR", "maxReviews": max_reviews, "reviewsSort": "newest"})
+        run = client.actor("compass/crawler-google-places").call(run_input={
+            "startUrls": [{"url": url}], 
+            "language": "pt-BR", 
+            "maxReviews": max_reviews, 
+            "reviewsSort": "newest"
+        })
         items = client.dataset(run['defaultDatasetId']).list_items().items
         return items[0] if items else None
-    except: return None
+    except Exception as e:
+        print(f"Erro Apify Reviews: {e}")
+        return None
 
-# --- IA (MODELO ATUALIZADO: GEMINI-1.5-FLASH) ---
+# --- IA (MODELO ATUALIZADO) ---
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
-    if not MY_GEMINI_KEY: return "⚠️ Erro: Chave da IA não configurada. Verifique os 'Secrets'."
+    if not MY_GEMINI_KEY: return "⚠️ Erro: Chave da IA (Gemini) não configurada no backend.py"
     
     genai.configure(api_key=MY_GEMINI_KEY)
     try:
-        # ATUALIZAÇÃO AQUI: Mudamos de 'gemini-pro' para 'gemini-1.5-flash'
+        # USA O MODELO NOVO (CORREÇÃO DO ERRO 404)
         model = genai.GenerativeModel('gemini-1.5-flash')
         
         prompt = f"""
@@ -102,7 +136,7 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
 
         ---
         ### 🏆 Veredito
-        (Resumo de quem ganha)
+        (Resumo de quem ganha e porquê)
 
         ### 💎 Análise de {nome_a}
         (Pontos fortes e fracos detalhados)
@@ -116,4 +150,4 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"⚠️ IA Indisponível no momento. Detalhe: {str(e)}"
+        return f"⚠️ IA Indisponível. Erro: {str(e)}"
