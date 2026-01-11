@@ -5,7 +5,7 @@ from datetime import date, datetime
 import backend as bk 
 
 # --- CONFIGURAÇÃO VISUAL ---
-st.set_page_config(page_title="Monitor Corp V26", page_icon="🏢", layout="wide")
+st.set_page_config(page_title="4b Spy Concorrent", page_icon="🏢", layout="wide")
 
 # --- CSS PROFISSIONAL ---
 st.markdown("""
