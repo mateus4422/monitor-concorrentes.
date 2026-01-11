@@ -11,13 +11,14 @@ import streamlit as st
 DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
-def get_api_keys():
+def get_keys():
+    # Tenta pegar dos segredos do Streamlit, senão retorna vazio
     try:
         return st.secrets["MY_APIFY_TOKEN"], st.secrets["MY_GEMINI_KEY"]
     except:
         return "", ""
 
-MY_APIFY_TOKEN, MY_GEMINI_KEY = get_api_keys()
+MY_APIFY_TOKEN, MY_GEMINI_KEY = get_keys()
 
 # --- DATABASE ---
 def carregar_dados(arquivo):
@@ -75,83 +76,42 @@ def baixar_reviews(url, max_reviews=100):
         return items[0] if items else None
     except: return None
 
-# --- IA PADRÃO (1 vs 1) ---
-def gerar_analise_ia_detalhada(texto_a, texto_b, nome_a, nome_b):
-    if not MY_GEMINI_KEY: return "Erro config IA"
+# --- IA (TEXTO SIMPLES - MAIS ESTÁVEL) ---
+def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
+    if not MY_GEMINI_KEY: return "⚠️ Erro: Chave da IA não configurada. Verifique os 'Secrets'."
+    
     genai.configure(api_key=MY_GEMINI_KEY)
     try:
         model = genai.GenerativeModel('gemini-pro')
         prompt = f"""
-        Atue como Consultor Sênior. Análise: {nome_a} (CLIENTE) vs {nome_b} (CONCORRENTE).
-        REVIEWS CLIENTE: {texto_a[:3500]}
-        REVIEWS CONCORRENTE: {texto_b[:3500]}
+        Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
+        REVIEWS A: {texto_a[:3500]}
+        REVIEWS B: {texto_b[:3500]}
         
         Gere relatório Markdown:
-        ### 📊 Radar (Tags)
+        ### 📊 Radar (Tags Rápidas)
         **{nome_a}**
-        * 👍 Positivo: (3 tags)
-        * 👎 Negativo: (3 tags)
-        **{nome_b}**
-        * 👍 Positivo: (3 tags)
-        * 👎 Negativo: (3 tags)
-        ---
-        ### 🏆 Veredito Técnico
-        (1 parágrafo)
-        ### 💎 Análise de {nome_a}
-        (Pontos fortes e Gaps)
-        ### 🥊 Análise de {nome_b}
-        (Vantagens e Fraquezas)
-        ### 🚀 Plano de Ação
-        (3 estratégias)
-        """
-        return model.generate_content(prompt).text
-    except: return "IA Indisponível"
-
-# --- IA NOVA (MATRIZ MULTI-CONCORRENTE) ---
-def gerar_matriz_comparativa(dados_empresas):
-    """
-    Recebe um dict: {'Empresa A': 'Texto Reviews...', 'Empresa B': 'Texto Reviews...'}
-    Retorna JSON para montar a tabela.
-    """
-    if not MY_GEMINI_KEY: return None
-    genai.configure(api_key=MY_GEMINI_KEY)
-    
-    # Monta o prompt com os dados de todos
-    texto_base = ""
-    for nome, reviews in dados_empresas.items():
-        texto_base += f"\n--- EMPRESA: {nome} ---\nREVIEWS: {reviews[:2500]}\n"
-
-    try:
-        model = genai.GenerativeModel('gemini-pro')
-        prompt = f"""
-        Atue como Juiz de Mercado. Analise as empresas abaixo com base nos reviews.
-        {texto_base}
-
-        Sua tarefa é determinar QUAL EMPRESA VENCE em cada categoria. Apenas UMA empresa pode vencer cada categoria.
+        * 👍 Positivo: (3 palavras-chave)
+        * 👎 Negativo: (3 palavras-chave)
         
-        Categorias:
-        1. Qualidade do Produto (Sabor/Material)
-        2. Atendimento ao Cliente
-        3. Rapidez/Entrega
-        4. Custo-Benefício (Preço Justo)
-        5. Ambiente/Apresentação
+        **{nome_b}**
+        * 👍 Positivo: (3 palavras-chave)
+        * 👎 Negativo: (3 palavras-chave)
 
-        Responda APENAS um JSON puro neste formato (sem markdown):
-        {{
-            "vencedores": {{
-                "Qualidade do Produto": "Nome Exato da Empresa Vencedora",
-                "Atendimento ao Cliente": "Nome Exato da Empresa Vencedora",
-                "Rapidez/Entrega": "Nome Exato da Empresa Vencedora",
-                "Custo-Benefício": "Nome Exato da Empresa Vencedora",
-                "Ambiente/Apresentação": "Nome Exato da Empresa Vencedora"
-            }},
-            "resumo": "Um parágrafo curto explicando quem é o líder geral e porquê."
-        }}
+        ---
+        ### 🏆 Veredito
+        (Resumo de quem ganha)
+
+        ### 💎 Análise de {nome_a}
+        (Pontos fortes e fracos detalhados)
+
+        ### 🥊 Análise de {nome_b}
+        (Pontos fortes e fracos detalhados)
+
+        ### 🚀 Plano de Ação
+        (3 passos práticos)
         """
-        resposta = model.generate_content(prompt).text
-        # Limpeza para garantir JSON puro
-        resposta = resposta.replace("```json", "").replace("```", "").strip()
-        return json.loads(resposta)
+        response = model.generate_content(prompt)
+        return response.text
     except Exception as e:
-        print(f"Erro IA: {e}")
-        return None
+        return f"⚠️ IA Indisponível no momento. Detalhe: {str(e)}"
