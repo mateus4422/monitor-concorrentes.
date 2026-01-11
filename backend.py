@@ -11,13 +11,23 @@ DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES
+# 🔐 ÁREA DE CHAVES (ATUALIZADA)
 # ==============================================================================
+# 1. APIFY (Maps)
 TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
-KEY_GEMINI_FIXA = "AIzaSyBzC0pjgmhKXUxrsDlO5eUPqZxfhg-gfXw"
+
+# 2. GOOGLE GEMINI (IA) - SUA NOVA CHAVE INSERIDA AQUI:
+KEY_GEMINI_FIXA = "AIzaSyBqEgzqsdvo-zMcVwjMLxM3H7ZAZJ4LosM"
 
 def get_keys():
-    return TOKEN_APIFY_FIXO, KEY_GEMINI_FIXA
+    # Tenta pegar do Streamlit Cloud primeiro, se não tiver, usa a fixa
+    apify = TOKEN_APIFY_FIXO
+    gemini = KEY_GEMINI_FIXA
+    
+    if "MY_APIFY_TOKEN" in st.secrets: apify = st.secrets["MY_APIFY_TOKEN"]
+    if "MY_GEMINI_KEY" in st.secrets: gemini = st.secrets["MY_GEMINI_KEY"]
+        
+    return apify, gemini
 
 MY_APIFY_TOKEN, MY_GEMINI_KEY = get_keys()
 
@@ -61,15 +71,23 @@ def get_ibge_locais(tipo, uf=None):
 
 # --- APIFY ---
 def buscar_locais(termo):
-    if not MY_APIFY_TOKEN: return []
+    if not MY_APIFY_TOKEN: 
+        st.error("❌ Erro: Chave Apify não configurada.")
+        return []
+    
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
         run = client.actor("compass/crawler-google-places").call(run_input={"searchStringsArray": [termo], "maxCrawledPlacesPerSearch": 5, "language": "pt-BR", "maxReviews": 0})
         return client.dataset(run['defaultDatasetId']).list_items().items
-    except: return []
+    except Exception as e:
+        st.error(f"❌ Erro Apify: {e}")
+        return []
 
 def baixar_reviews(url, max_reviews=100):
-    if not MY_APIFY_TOKEN: return None
+    if not MY_APIFY_TOKEN: 
+        st.error("❌ Erro: Chave Apify vazia.")
+        return None
+    
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
         run = client.actor("compass/crawler-google-places").call(run_input={"startUrls": [{"url": url}], "language": "pt-BR", "maxReviews": max_reviews, "reviewsSort": "newest"})
@@ -78,9 +96,9 @@ def baixar_reviews(url, max_reviews=100):
         return items[0]
     except: return None
 
-# --- IA (CONEXÃO DIRETA HTTP COM FALLBACK) ---
+# --- IA (MÉTODO BLINDADO - HTTP REQUESTS) ---
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
-    if not MY_GEMINI_KEY: return "⚠️ Erro: Chave Google Gemini não configurada."
+    if not MY_GEMINI_KEY: return "⚠️ Erro: Chave IA ausente."
     
     prompt_text = f"""
     Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
@@ -111,31 +129,33 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     (3 passos)
     """
 
-    # LISTA DE MODELOS PARA TENTAR (SE UM FALHAR, TENTA O OUTRO)
+    # Tenta usar o modelo FLASH (Rápido), se falhar, tenta o PRO (Estável)
     modelos = ["gemini-1.5-flash", "gemini-pro"]
-    
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt_text}]}]}
     
-    erros_acumulados = []
+    erros = []
 
     for modelo in modelos:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={MY_GEMINI_KEY}"
         
         try:
+            # Faz a chamada direta via HTTP (Ignora bugs de biblioteca Python)
             response = requests.post(url, headers=headers, json=data)
             
             if response.status_code == 200:
-                # SUCESSO!
                 resultado = response.json()
                 try:
                     return resultado['candidates'][0]['content']['parts'][0]['text']
                 except:
-                    erros_acumulados.append(f"{modelo}: JSON inválido")
+                    erros.append(f"{modelo}: Resposta ilegível")
             else:
-                erros_acumulados.append(f"{modelo}: Erro {response.status_code}")
-                
-        except Exception as e:
-            erros_acumulados.append(f"{modelo}: Erro de conexão")
+                msg_erro = response.text
+                if "API key not valid" in msg_erro:
+                    return "🚫 A chave informada ainda não está ativa ou está incorreta."
+                erros.append(f"{modelo}: Erro {response.status_code}")
 
-    return f"⚠️ IA Indisponível. Falha em todos os modelos. Detalhes: {'; '.join(erros_acumulados)}"
+        except Exception as e:
+            erros.append(f"{modelo}: {str(e)}")
+
+    return f"⚠️ Sistema Indisponível. Detalhes técnicos: {'; '.join(erros)}"
