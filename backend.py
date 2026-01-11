@@ -3,7 +3,6 @@ import requests
 import json
 import os
 from apify_client import ApifyClient
-# import google.generativeai as genai  <-- REMOVIDO PARA EVITAR ERRO DE VERSÃO
 from datetime import datetime, timedelta
 import streamlit as st
 
@@ -14,10 +13,7 @@ DB_HISTORICO = "historico.json"
 # ==============================================================================
 # 🔐 ÁREA DE CHAVES
 # ==============================================================================
-# 1. APIFY
 TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
-
-# 2. GOOGLE GEMINI (Sua chave AIza...)
 KEY_GEMINI_FIXA = "AIzaSyBzC0pjgmhKXUxrsDlO5eUPqZxfhg-gfXw"
 
 def get_keys():
@@ -65,39 +61,26 @@ def get_ibge_locais(tipo, uf=None):
 
 # --- APIFY ---
 def buscar_locais(termo):
-    if not MY_APIFY_TOKEN: 
-        st.error("❌ Erro: Chave Apify não configurada.")
-        return []
-    
+    if not MY_APIFY_TOKEN: return []
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
         run = client.actor("compass/crawler-google-places").call(run_input={"searchStringsArray": [termo], "maxCrawledPlacesPerSearch": 5, "language": "pt-BR", "maxReviews": 0})
         return client.dataset(run['defaultDatasetId']).list_items().items
-    except Exception as e:
-        st.error(f"❌ Erro Apify: {e}")
-        return []
+    except: return []
 
 def baixar_reviews(url, max_reviews=100):
-    if not MY_APIFY_TOKEN: 
-        st.error("❌ Erro: Chave Apify vazia.")
-        return None
-    
+    if not MY_APIFY_TOKEN: return None
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
         run = client.actor("compass/crawler-google-places").call(run_input={"startUrls": [{"url": url}], "language": "pt-BR", "maxReviews": max_reviews, "reviewsSort": "newest"})
         items = client.dataset(run['defaultDatasetId']).list_items().items
-        if not items: st.warning("⚠️ Apify não retornou dados."); return None
+        if not items: return None
         return items[0]
-    except Exception as e:
-        st.error(f"❌ Erro Crítico Apify: {str(e)}")
-        return None
+    except: return None
 
-# --- IA (CONEXÃO DIRETA HTTP - SEM BIBLIOTECA) ---
+# --- IA (CONEXÃO DIRETA HTTP COM FALLBACK) ---
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     if not MY_GEMINI_KEY: return "⚠️ Erro: Chave Google Gemini não configurada."
-    
-    # URL direta da API do Google (Bypassa a biblioteca Python)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={MY_GEMINI_KEY}"
     
     prompt_text = f"""
     Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
@@ -128,27 +111,31 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     (3 passos)
     """
 
-    # Configuração do cabeçalho e corpo da requisição
-    headers = {'Content-Type': 'application/json'}
-    data = {
-        "contents": [{
-            "parts": [{"text": prompt_text}]
-        }]
-    }
+    # LISTA DE MODELOS PARA TENTAR (SE UM FALHAR, TENTA O OUTRO)
+    modelos = ["gemini-1.5-flash", "gemini-pro"]
     
-    try:
-        response = requests.post(url, headers=headers, json=data)
+    headers = {'Content-Type': 'application/json'}
+    data = {"contents": [{"parts": [{"text": prompt_text}]}]}
+    
+    erros_acumulados = []
+
+    for modelo in modelos:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={MY_GEMINI_KEY}"
         
-        if response.status_code == 200:
-            resultado = response.json()
-            # Extrai o texto da resposta complexa do Google
-            try:
-                texto_final = resultado['candidates'][0]['content']['parts'][0]['text']
-                return texto_final
-            except:
-                return "⚠️ Erro ao ler resposta da IA (JSON inválido)."
-        else:
-            return f"⚠️ Erro na API do Google: Código {response.status_code} - {response.text}"
+        try:
+            response = requests.post(url, headers=headers, json=data)
             
-    except Exception as e:
-        return f"⚠️ Erro de Conexão: {str(e)}"
+            if response.status_code == 200:
+                # SUCESSO!
+                resultado = response.json()
+                try:
+                    return resultado['candidates'][0]['content']['parts'][0]['text']
+                except:
+                    erros_acumulados.append(f"{modelo}: JSON inválido")
+            else:
+                erros_acumulados.append(f"{modelo}: Erro {response.status_code}")
+                
+        except Exception as e:
+            erros_acumulados.append(f"{modelo}: Erro de conexão")
+
+    return f"⚠️ IA Indisponível. Falha em todos os modelos. Detalhes: {'; '.join(erros_acumulados)}"
