@@ -12,13 +12,13 @@ DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES (HARDCODED PARA TESTE)
+# 🔐 ÁREA DE CHAVES (ATUALIZADA)
 # ==============================================================================
-# SUA CHAVE APIFY (Google Maps):
-TOKEN_APIFY_FIXO = "apify_api_yRzwwIYgcwqLjvf2aL0yWnyjss54F00ym2nK"
+# NOVA CHAVE APIFY:
+TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
 
-# SUA CHAVE OPENAI (ChatGPT) QUE VOCÊ MANDOU:
-KEY_OPENAI_FIXA = "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"
+# SUA CHAVE OPENAI (Mantida a anterior):
+KEY_OPENAI_FIXA = "AIzaSyBzC0pjgmhKXUxrsDlO5eUPqZxfhg-gfXw"
 
 def get_keys():
     return TOKEN_APIFY_FIXO, KEY_OPENAI_FIXA
@@ -106,7 +106,6 @@ def baixar_reviews(url, max_reviews=100):
         return items[0]
         
     except Exception as e:
-        # AQUI O ERRO VAI APARECER NA TELA
         st.error(f"❌ ERRO CRÍTICO NO APIFY: {str(e)}")
         return None
 
