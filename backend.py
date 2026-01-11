@@ -3,7 +3,7 @@ import requests
 import json
 import os
 from apify_client import ApifyClient
-from openai import OpenAI  # <--- MUDANÇA AQUI (Usa OpenAI agora)
+from openai import OpenAI
 from datetime import datetime, timedelta
 import streamlit as st
 
@@ -12,26 +12,16 @@ DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES
+# 🔐 ÁREA DE CHAVES (HARDCODED PARA TESTE)
 # ==============================================================================
+# SUA CHAVE APIFY (Google Maps):
 TOKEN_APIFY_FIXO = "apify_api_yRzwwIYgcwqLjvf2aL0yWnyjss54F00ym2nK"
-# Coloque sua chave sk-proj-... aqui dentro das aspas:
+
+# SUA CHAVE OPENAI (ChatGPT) QUE VOCÊ MANDOU:
 KEY_OPENAI_FIXA = "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"
 
 def get_keys():
-    apify = TOKEN_APIFY_FIXO
-    openai_key = KEY_OPENAI_FIXA
-    
-    # Backup: Tenta pegar do Streamlit Cloud se não tiver fixo
-    if not apify:
-        try: apify = st.secrets["MY_APIFY_TOKEN"]
-        except: pass
-    
-    if not openai_key:
-        try: openai_key = st.secrets["MY_OPENAI_KEY"]
-        except: pass
-        
-    return apify, openai_key
+    return TOKEN_APIFY_FIXO, KEY_OPENAI_FIXA
 
 MY_APIFY_TOKEN, MY_OPENAI_KEY = get_keys()
 
@@ -73,9 +63,12 @@ def get_ibge_locais(tipo, uf=None):
         return sorted([x['sigla' if tipo=='estados' else 'nome'] for x in r.json()])
     except: return []
 
-# --- APIFY ---
+# --- APIFY (GOOGLE MAPS) ---
 def buscar_locais(termo):
-    if not MY_APIFY_TOKEN: return []
+    if not MY_APIFY_TOKEN: 
+        st.error("❌ Erro: Chave Apify não configurada no backend.")
+        return []
+    
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
         run = client.actor("compass/crawler-google-places").call(run_input={
@@ -85,25 +78,42 @@ def buscar_locais(termo):
             "maxReviews": 0
         })
         return client.dataset(run['defaultDatasetId']).list_items().items
-    except: return []
+    except Exception as e:
+        st.error(f"❌ Erro ao Buscar Empresa (Apify): {e}")
+        return []
 
 def baixar_reviews(url, max_reviews=100):
-    if not MY_APIFY_TOKEN: return None
+    if not MY_APIFY_TOKEN: 
+        st.error("❌ Erro: Chave Apify vazia.")
+        return None
+    
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
+        # Tenta rodar o scraper
         run = client.actor("compass/crawler-google-places").call(run_input={
             "startUrls": [{"url": url}], 
             "language": "pt-BR", 
             "maxReviews": max_reviews, 
             "reviewsSort": "newest"
         })
+        # Pega os resultados
         items = client.dataset(run['defaultDatasetId']).list_items().items
-        return items[0] if items else None
-    except: return None
+        
+        if not items:
+            st.warning(f"⚠️ O Apify rodou mas não retornou dados para a URL: {url}")
+            return None
+            
+        return items[0]
+        
+    except Exception as e:
+        # AQUI O ERRO VAI APARECER NA TELA
+        st.error(f"❌ ERRO CRÍTICO NO APIFY: {str(e)}")
+        return None
 
-# --- IA (AGORA USANDO OPENAI / CHATGPT) ---
+# --- IA (OPENAI / CHATGPT) ---
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
-    if not MY_OPENAI_KEY: return "⚠️ Erro: Chave OpenAI não configurada."
+    if not MY_OPENAI_KEY: 
+        return "⚠️ Erro: Chave OpenAI não configurada."
     
     try:
         client = OpenAI(api_key=MY_OPENAI_KEY)
@@ -139,7 +149,7 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
         """
         
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo", # Ou "gpt-4o" se tiver acesso
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": prompt_sistema},
                 {"role": "user", "content": prompt_usuario}
