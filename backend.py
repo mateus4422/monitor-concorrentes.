@@ -76,13 +76,15 @@ def baixar_reviews(url, max_reviews=100):
         return items[0] if items else None
     except: return None
 
-# --- IA (TEXTO SIMPLES - MAIS ESTÁVEL) ---
+# --- IA (MODELO ATUALIZADO: GEMINI-1.5-FLASH) ---
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     if not MY_GEMINI_KEY: return "⚠️ Erro: Chave da IA não configurada. Verifique os 'Secrets'."
     
     genai.configure(api_key=MY_GEMINI_KEY)
     try:
-        model = genai.GenerativeModel('gemini-pro')
+        # ATUALIZAÇÃO AQUI: Mudamos de 'gemini-pro' para 'gemini-1.5-flash'
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
         prompt = f"""
         Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
         REVIEWS A: {texto_a[:3500]}
