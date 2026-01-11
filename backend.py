@@ -3,7 +3,7 @@ import requests
 import json
 import os
 from apify_client import ApifyClient
-import google.generativeai as genai
+# import google.generativeai as genai  <-- REMOVIDO PARA EVITAR ERRO DE VERSÃO
 from datetime import datetime, timedelta
 import streamlit as st
 
@@ -92,13 +92,14 @@ def baixar_reviews(url, max_reviews=100):
         st.error(f"❌ Erro Crítico Apify: {str(e)}")
         return None
 
-# --- IA (GOOGLE GEMINI - MÚLTIPLAS TENTATIVAS) ---
+# --- IA (CONEXÃO DIRETA HTTP - SEM BIBLIOTECA) ---
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     if not MY_GEMINI_KEY: return "⚠️ Erro: Chave Google Gemini não configurada."
     
-    genai.configure(api_key=MY_GEMINI_KEY)
+    # URL direta da API do Google (Bypassa a biblioteca Python)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={MY_GEMINI_KEY}"
     
-    prompt = f"""
+    prompt_text = f"""
     Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
     REVIEWS A: {texto_a[:3500]}
     REVIEWS B: {texto_b[:3500]}
@@ -127,23 +128,27 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     (3 passos)
     """
 
-    # LISTA DE MODELOS PARA TENTAR (SE UM FALHAR, TENTA O PRÓXIMO)
-    modelos_para_tentar = [
-        'gemini-1.5-flash',       # Mais rápido e novo
-        'gemini-1.5-flash-latest',# Alias alternativo
-        'gemini-pro',             # Clássico estável
-        'gemini-1.0-pro'          # Versão legada
-    ]
+    # Configuração do cabeçalho e corpo da requisição
+    headers = {'Content-Type': 'application/json'}
+    data = {
+        "contents": [{
+            "parts": [{"text": prompt_text}]
+        }]
+    }
     
-    ultimo_erro = ""
-    
-    for nome_modelo in modelos_para_tentar:
-        try:
-            model = genai.GenerativeModel(nome_modelo)
-            response = model.generate_content(prompt)
-            return response.text # Se funcionou, retorna e sai da função
-        except Exception as e:
-            ultimo_erro = str(e)
-            continue # Se deu erro, tenta o próximo da lista
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        
+        if response.status_code == 200:
+            resultado = response.json()
+            # Extrai o texto da resposta complexa do Google
+            try:
+                texto_final = resultado['candidates'][0]['content']['parts'][0]['text']
+                return texto_final
+            except:
+                return "⚠️ Erro ao ler resposta da IA (JSON inválido)."
+        else:
+            return f"⚠️ Erro na API do Google: Código {response.status_code} - {response.text}"
             
-    return f"⚠️ IA Indisponível em todos os modelos. Último erro: {ultimo_erro}"
+    except Exception as e:
+        return f"⚠️ Erro de Conexão: {str(e)}"
