@@ -11,23 +11,14 @@ DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES (ATUALIZADA)
+# 🔐 ÁREA DE CHAVES
 # ==============================================================================
-# 1. APIFY (Maps)
 TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
-
-# 2. GOOGLE GEMINI (IA) - SUA NOVA CHAVE INSERIDA AQUI:
+# Sua chave Google AI Studio:
 KEY_GEMINI_FIXA = "AIzaSyBqEgzqsdvo-zMcVwjMLxM3H7ZAZJ4LosM"
 
 def get_keys():
-    # Tenta pegar do Streamlit Cloud primeiro, se não tiver, usa a fixa
-    apify = TOKEN_APIFY_FIXO
-    gemini = KEY_GEMINI_FIXA
-    
-    if "MY_APIFY_TOKEN" in st.secrets: apify = st.secrets["MY_APIFY_TOKEN"]
-    if "MY_GEMINI_KEY" in st.secrets: gemini = st.secrets["MY_GEMINI_KEY"]
-        
-    return apify, gemini
+    return TOKEN_APIFY_FIXO, KEY_GEMINI_FIXA
 
 MY_APIFY_TOKEN, MY_GEMINI_KEY = get_keys()
 
@@ -71,23 +62,15 @@ def get_ibge_locais(tipo, uf=None):
 
 # --- APIFY ---
 def buscar_locais(termo):
-    if not MY_APIFY_TOKEN: 
-        st.error("❌ Erro: Chave Apify não configurada.")
-        return []
-    
+    if not MY_APIFY_TOKEN: return []
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
         run = client.actor("compass/crawler-google-places").call(run_input={"searchStringsArray": [termo], "maxCrawledPlacesPerSearch": 5, "language": "pt-BR", "maxReviews": 0})
         return client.dataset(run['defaultDatasetId']).list_items().items
-    except Exception as e:
-        st.error(f"❌ Erro Apify: {e}")
-        return []
+    except: return []
 
 def baixar_reviews(url, max_reviews=100):
-    if not MY_APIFY_TOKEN: 
-        st.error("❌ Erro: Chave Apify vazia.")
-        return None
-    
+    if not MY_APIFY_TOKEN: return None
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
         run = client.actor("compass/crawler-google-places").call(run_input={"startUrls": [{"url": url}], "language": "pt-BR", "maxReviews": max_reviews, "reviewsSort": "newest"})
@@ -96,10 +79,33 @@ def baixar_reviews(url, max_reviews=100):
         return items[0]
     except: return None
 
-# --- IA (MÉTODO BLINDADO - HTTP REQUESTS) ---
+# --- IA (AUTO-DESCOBERTA DE MODELO) ---
+def descobrir_modelo_disponivel(api_key):
+    """Pergunta ao Google quais modelos a chave pode usar"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            # Procura o primeiro modelo que suporte 'generateContent'
+            for model in data.get('models', []):
+                if 'generateContent' in model.get('supportedGenerationMethods', []):
+                    # Retorna o nome limpo (ex: models/gemini-pro -> gemini-pro)
+                    return model['name'].replace("models/", "")
+        return None
+    except:
+        return None
+
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     if not MY_GEMINI_KEY: return "⚠️ Erro: Chave IA ausente."
     
+    # 1. TENTA DESCOBRIR QUAL MODELO USAR
+    modelo_ativo = descobrir_modelo_disponivel(MY_GEMINI_KEY)
+    
+    # Se não descobrir, usa um fallback manual
+    if not modelo_ativo:
+        modelo_ativo = "gemini-1.5-flash" 
+
     prompt_text = f"""
     Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
     REVIEWS A: {texto_a[:3500]}
@@ -129,33 +135,24 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     (3 passos)
     """
 
-    # Tenta usar o modelo FLASH (Rápido), se falhar, tenta o PRO (Estável)
-    modelos = ["gemini-1.5-flash", "gemini-pro"]
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt_text}]}]}
     
-    erros = []
-
-    for modelo in modelos:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={MY_GEMINI_KEY}"
+    # Tenta usar o modelo descoberto
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo_ativo}:generateContent?key={MY_GEMINI_KEY}"
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
         
-        try:
-            # Faz a chamada direta via HTTP (Ignora bugs de biblioteca Python)
-            response = requests.post(url, headers=headers, json=data)
-            
-            if response.status_code == 200:
-                resultado = response.json()
-                try:
-                    return resultado['candidates'][0]['content']['parts'][0]['text']
-                except:
-                    erros.append(f"{modelo}: Resposta ilegível")
-            else:
-                msg_erro = response.text
-                if "API key not valid" in msg_erro:
-                    return "🚫 A chave informada ainda não está ativa ou está incorreta."
-                erros.append(f"{modelo}: Erro {response.status_code}")
+        if response.status_code == 200:
+            resultado = response.json()
+            try:
+                return resultado['candidates'][0]['content']['parts'][0]['text']
+            except:
+                return "⚠️ Erro: A IA respondeu mas o formato veio vazio."
+        else:
+            # RETORNA O ERRO REAL DO GOOGLE PARA LERMOS
+            return f"⚠️ Erro Google ({response.status_code}): {response.text}"
 
-        except Exception as e:
-            erros.append(f"{modelo}: {str(e)}")
-
-    return f"⚠️ Sistema Indisponível. Detalhes técnicos: {'; '.join(erros)}"
+    except Exception as e:
+        return f"⚠️ Erro de Conexão: {str(e)}"
