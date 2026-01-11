@@ -11,14 +11,17 @@ DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES
+# 🔐 ÁREA DE CHAVES (SEGURA - LÊ DOS SECRETS)
 # ==============================================================================
-TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
-# Sua chave Google AI Studio:
-KEY_GEMINI_FIXA = "AIzaSyBqEgzqsdvo-zMcVwjMLxM3H7ZAZJ4LosM"
-
 def get_keys():
-    return TOKEN_APIFY_FIXO, KEY_GEMINI_FIXA
+    # Tenta ler do cofre do Streamlit (Nuvem)
+    try:
+        apify = st.secrets["MY_APIFY_TOKEN"]
+        gemini = st.secrets["MY_GEMINI_KEY"]
+        return apify, gemini
+    except Exception:
+        # Se estiver rodando no seu PC sem secrets.toml, retorna erro ou vazio
+        return "", ""
 
 MY_APIFY_TOKEN, MY_GEMINI_KEY = get_keys()
 
@@ -79,33 +82,10 @@ def baixar_reviews(url, max_reviews=100):
         return items[0]
     except: return None
 
-# --- IA (AUTO-DESCOBERTA DE MODELO) ---
-def descobrir_modelo_disponivel(api_key):
-    """Pergunta ao Google quais modelos a chave pode usar"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            # Procura o primeiro modelo que suporte 'generateContent'
-            for model in data.get('models', []):
-                if 'generateContent' in model.get('supportedGenerationMethods', []):
-                    # Retorna o nome limpo (ex: models/gemini-pro -> gemini-pro)
-                    return model['name'].replace("models/", "")
-        return None
-    except:
-        return None
-
+# --- IA (CONEXÃO DIRETA COM FALLBACK) ---
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
-    if not MY_GEMINI_KEY: return "⚠️ Erro: Chave IA ausente."
+    if not MY_GEMINI_KEY: return "⚠️ Erro: Chaves não configuradas nos 'Secrets' do Streamlit."
     
-    # 1. TENTA DESCOBRIR QUAL MODELO USAR
-    modelo_ativo = descobrir_modelo_disponivel(MY_GEMINI_KEY)
-    
-    # Se não descobrir, usa um fallback manual
-    if not modelo_ativo:
-        modelo_ativo = "gemini-1.5-flash" 
-
     prompt_text = f"""
     Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
     REVIEWS A: {texto_a[:3500]}
@@ -135,24 +115,29 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     (3 passos)
     """
 
+    # Tenta usar o modelo FLASH (Rápido), se falhar, tenta o PRO
+    modelos = ["gemini-1.5-flash", "gemini-pro"]
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt_text}]}]}
     
-    # Tenta usar o modelo descoberto
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo_ativo}:generateContent?key={MY_GEMINI_KEY}"
-    
-    try:
-        response = requests.post(url, headers=headers, json=data)
-        
-        if response.status_code == 200:
-            resultado = response.json()
-            try:
-                return resultado['candidates'][0]['content']['parts'][0]['text']
-            except:
-                return "⚠️ Erro: A IA respondeu mas o formato veio vazio."
-        else:
-            # RETORNA O ERRO REAL DO GOOGLE PARA LERMOS
-            return f"⚠️ Erro Google ({response.status_code}): {response.text}"
+    erros = []
 
-    except Exception as e:
-        return f"⚠️ Erro de Conexão: {str(e)}"
+    for modelo in modelos:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={MY_GEMINI_KEY}"
+        
+        try:
+            response = requests.post(url, headers=headers, json=data)
+            
+            if response.status_code == 200:
+                resultado = response.json()
+                try:
+                    return resultado['candidates'][0]['content']['parts'][0]['text']
+                except:
+                    erros.append(f"{modelo}: JSON inválido")
+            else:
+                erros.append(f"{modelo}: Erro {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            erros.append(f"{modelo}: {str(e)}")
+
+    return f"⚠️ IA Indisponível. Detalhes: {'; '.join(erros)}"
