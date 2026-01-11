@@ -7,20 +7,19 @@ import google.generativeai as genai
 from datetime import datetime, timedelta
 import streamlit as st
 
-# --- CONFIGURAÇÕES DE ARQUIVOS ---
+# --- CONFIGURAÇÕES ---
 DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
-# --- GERENCIAMENTO DE CHAVES (SECRETS) ---
 def get_api_keys():
     try:
         return st.secrets["MY_APIFY_TOKEN"], st.secrets["MY_GEMINI_KEY"]
     except:
-        return "", "" # Retorna vazio se não configurado localmente
+        return "", ""
 
 MY_APIFY_TOKEN, MY_GEMINI_KEY = get_api_keys()
 
-# --- BANCO DE DADOS (JSON) ---
+# --- DATABASE ---
 def carregar_dados(arquivo):
     if not os.path.exists(arquivo): return {} if arquivo == DB_EMPRESAS else []
     try:
@@ -31,12 +30,11 @@ def salvar_dados(arquivo, dados):
     with open(arquivo, 'w', encoding='utf-8') as f:
         json.dump(dados, f, indent=4, ensure_ascii=False, default=str)
 
-# --- UTILITÁRIOS DE DATA E IBGE ---
+# --- UTIL ---
 def tratar_data_google(texto):
     if not isinstance(texto, str): return pd.NaT
     texto = texto.lower().strip()
     agora = datetime.now()
-    # Lógica de conversão relativa (ex: "3 dias atrás")
     if "atrás" in texto or "ago" in texto:
         try:
             val = 1 if "um" in texto or "uma" in texto else int(texto.split()[0])
@@ -59,64 +57,101 @@ def get_ibge_locais(tipo, uf=None):
         return sorted([x['sigla' if tipo=='estados' else 'nome'] for x in r.json()])
     except: return []
 
-# --- INTEGRAÇÃO APIFY (GOOGLE MAPS) ---
+# --- APIFY ---
 def buscar_locais(termo):
     if not MY_APIFY_TOKEN: return []
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
-        run = client.actor("compass/crawler-google-places").call(run_input={
-            "searchStringsArray": [termo], "maxCrawledPlacesPerSearch": 5, "language": "pt-BR", "maxReviews": 0
-        })
+        run = client.actor("compass/crawler-google-places").call(run_input={"searchStringsArray": [termo], "maxCrawledPlacesPerSearch": 5, "language": "pt-BR", "maxReviews": 0})
         return client.dataset(run['defaultDatasetId']).list_items().items
     except: return []
 
-def baixar_reviews(url, max_reviews=150):
+def baixar_reviews(url, max_reviews=100):
     if not MY_APIFY_TOKEN: return None
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
-        run = client.actor("compass/crawler-google-places").call(run_input={
-            "startUrls": [{"url": url}], "language": "pt-BR", "maxReviews": max_reviews, "reviewsSort": "newest"
-        })
+        run = client.actor("compass/crawler-google-places").call(run_input={"startUrls": [{"url": url}], "language": "pt-BR", "maxReviews": max_reviews, "reviewsSort": "newest"})
         items = client.dataset(run['defaultDatasetId']).list_items().items
         return items[0] if items else None
     except: return None
 
-# --- INTEGRAÇÃO GEMINI (IA) ---
-def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
-    if not MY_GEMINI_KEY: return "Erro: Chave de API da IA não configurada."
+# --- IA PADRÃO (1 vs 1) ---
+def gerar_analise_ia_detalhada(texto_a, texto_b, nome_a, nome_b):
+    if not MY_GEMINI_KEY: return "Erro config IA"
     genai.configure(api_key=MY_GEMINI_KEY)
     try:
         model = genai.GenerativeModel('gemini-pro')
         prompt = f"""
-        Você é um Consultor Estratégico Sênior.
-        Análise: {nome_a} (CLIENTE) vs {nome_b} (CONCORRENTE).
-        
+        Atue como Consultor Sênior. Análise: {nome_a} (CLIENTE) vs {nome_b} (CONCORRENTE).
         REVIEWS CLIENTE: {texto_a[:3500]}
         REVIEWS CONCORRENTE: {texto_b[:3500]}
         
-        Gere um relatório Executivo em Markdown.
-        
-        ### 📊 Radar de Percepção (Tags)
+        Gere relatório Markdown:
+        ### 📊 Radar (Tags)
         **{nome_a}**
-        * 👍 Positivo: (3 palavras-chave)
-        * 👎 Negativo: (3 palavras-chave)
-        
+        * 👍 Positivo: (3 tags)
+        * 👎 Negativo: (3 tags)
         **{nome_b}**
-        * 👍 Positivo: (3 palavras-chave)
-        * 👎 Negativo: (3 palavras-chave)
-
+        * 👍 Positivo: (3 tags)
+        * 👎 Negativo: (3 tags)
         ---
         ### 🏆 Veredito Técnico
-        (Resumo comparativo direto e profissional)
-
+        (1 parágrafo)
         ### 💎 Análise de {nome_a}
-        (Pontos fortes e Gaps de qualidade)
-
+        (Pontos fortes e Gaps)
         ### 🥊 Análise de {nome_b}
-        (Vantagens competitivas e Fraquezas exploráveis)
-
+        (Vantagens e Fraquezas)
         ### 🚀 Plano de Ação
-        (3 iniciativas estratégicas imediatas)
+        (3 estratégias)
         """
         return model.generate_content(prompt).text
-    except: return "Serviço de Inteligência indisponível no momento."
+    except: return "IA Indisponível"
+
+# --- IA NOVA (MATRIZ MULTI-CONCORRENTE) ---
+def gerar_matriz_comparativa(dados_empresas):
+    """
+    Recebe um dict: {'Empresa A': 'Texto Reviews...', 'Empresa B': 'Texto Reviews...'}
+    Retorna JSON para montar a tabela.
+    """
+    if not MY_GEMINI_KEY: return None
+    genai.configure(api_key=MY_GEMINI_KEY)
+    
+    # Monta o prompt com os dados de todos
+    texto_base = ""
+    for nome, reviews in dados_empresas.items():
+        texto_base += f"\n--- EMPRESA: {nome} ---\nREVIEWS: {reviews[:2500]}\n"
+
+    try:
+        model = genai.GenerativeModel('gemini-pro')
+        prompt = f"""
+        Atue como Juiz de Mercado. Analise as empresas abaixo com base nos reviews.
+        {texto_base}
+
+        Sua tarefa é determinar QUAL EMPRESA VENCE em cada categoria. Apenas UMA empresa pode vencer cada categoria.
+        
+        Categorias:
+        1. Qualidade do Produto (Sabor/Material)
+        2. Atendimento ao Cliente
+        3. Rapidez/Entrega
+        4. Custo-Benefício (Preço Justo)
+        5. Ambiente/Apresentação
+
+        Responda APENAS um JSON puro neste formato (sem markdown):
+        {{
+            "vencedores": {{
+                "Qualidade do Produto": "Nome Exato da Empresa Vencedora",
+                "Atendimento ao Cliente": "Nome Exato da Empresa Vencedora",
+                "Rapidez/Entrega": "Nome Exato da Empresa Vencedora",
+                "Custo-Benefício": "Nome Exato da Empresa Vencedora",
+                "Ambiente/Apresentação": "Nome Exato da Empresa Vencedora"
+            }},
+            "resumo": "Um parágrafo curto explicando quem é o líder geral e porquê."
+        }}
+        """
+        resposta = model.generate_content(prompt).text
+        # Limpeza para garantir JSON puro
+        resposta = resposta.replace("```json", "").replace("```", "").strip()
+        return json.loads(resposta)
+    except Exception as e:
+        print(f"Erro IA: {e}")
+        return None
