@@ -16,33 +16,37 @@ try:
     MY_APIFY_TOKEN = st.secrets["MY_APIFY_TOKEN"]
     MY_GEMINI_KEY = st.secrets["MY_GEMINI_KEY"]
 except:
-    # Coloque suas chaves aqui para teste local
     MY_APIFY_TOKEN = ""
     MY_GEMINI_KEY = ""
 
-st.set_page_config(page_title="Monitor V17", page_icon="📱", layout="wide")
+st.set_page_config(page_title="Monitor V19", page_icon="🔢", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CSS RESPONSIVO ---
+# --- CSS (VISUAL LIMPO E NÚMEROS GRANDES) ---
 st.markdown("""
 <style>
-    /* Ajustes para Mobile */
-    [data-testid="stMetricValue"] { font-size: 1.8rem !important; }
-    
-    /* Container VS */
-    .vs-container { 
-        text-align: center; 
-        font-size: 2rem; 
-        font-weight: 900; 
-        color: #FF4B4B; 
-        margin-top: 20px;
-        margin-bottom: 20px;
+    /* Estilo dos Botões do Menu */
+    .stButton > button {
+        width: 100%; height: 70px; font-size: 18px; font-weight: 600; border-radius: 12px; margin-bottom: 8px;
     }
-    
-    /* Botões grandes para dedo (touch) */
-    div.stButton > button:first-child {
-        height: 3em;
-        font-weight: bold;
+    .btn-voltar > button { height: 40px !important; background: #f0f2f6; color: #333; border: none; }
+
+    /* PLACAR (SCOREBOARD) */
+    .score-container {
+        display: flex; justify-content: space-around; align-items: center;
+        background-color: #ffffff; padding: 20px; border-radius: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
     }
+    .score-box { text-align: center; width: 45%; }
+    .score-val { font-size: 3.5rem; font-weight: 800; line-height: 1; }
+    .score-lbl { font-size: 1rem; color: #666; font-weight: 600; margin-top: 5px; }
+    
+    .vs-text { font-size: 1.5rem; font-weight: 900; color: #ccc; }
+    
+    /* Cores */
+    .blue-text { color: #2962FF; }
+    .red-text { color: #D50000; }
+    .green-bg { background-color: #E8F5E9; color: #2E7D32; padding: 5px 10px; border-radius: 5px; font-weight: bold; }
+    .red-bg { background-color: #FFEBEE; color: #C62828; padding: 5px 10px; border-radius: 5px; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -62,62 +66,52 @@ def salvar_json(arquivo, dados):
 
 if "db_empresas" not in st.session_state: st.session_state.db_empresas = carregar_json(DB_EMPRESAS)
 if "db_historico" not in st.session_state: st.session_state.db_historico = carregar_json(DB_HISTORICO)
-# Estado para controlar a navegação Dashboard <-> Relatório
-if "modo_visualizacao" not in st.session_state: st.session_state.modo_visualizacao = "dashboard"
+
+# NAVEGAÇÃO
+if "tela_atual" not in st.session_state: st.session_state.tela_atual = "menu_principal"
 if "dados_analise_atual" not in st.session_state: st.session_state.dados_analise_atual = None
 
-# --- GRÁFICOS RESPONSIVOS ---
-def criar_gauge(valor, titulo, cor):
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = valor,
-        title = {'text': titulo, 'font': {'size': 16}},
-        gauge = {
-            'axis': {'range': [0, 5]},
-            'bar': {'color': cor},
-            'bgcolor': "white",
-            'borderwidth': 1,
-            'bordercolor': "#eee",
-            'steps': [
-                {'range': [0, 3], 'color': '#fff5f5'},
-                {'range': [3, 4], 'color': '#fffdf5'},
-                {'range': [4, 5], 'color': '#f0fff4'}],
-        }
-    ))
-    # Margens menores para caber no celular
-    fig.update_layout(height=180, margin=dict(l=10, r=10, t=30, b=10))
-    return fig
+def navegar_para(tela):
+    st.session_state.tela_atual = tela
+    st.rerun()
 
-def criar_barras_mobile(df_a, df_b, nome_a, nome_b):
-    # Agrupa sentimentos
-    def classificar(s):
-        if s >= 4: return "Positivo"
-        if s == 3: return "Neutro"
-        return "Negativo"
+# --- ÚNICO GRÁFICO (ESTRELAS) ---
+def criar_grafico_estrelas_horizontal(df_a, df_b, nome_a, nome_b):
+    # Prepara contagem 1 a 5
+    stars_a = df_a['stars'].value_counts().reindex(range(1, 6), fill_value=0)
+    stars_b = df_b['stars'].value_counts().reindex(range(1, 6), fill_value=0)
     
-    df_a['tipo'] = df_a['stars'].apply(classificar)
-    df_b['tipo'] = df_b['stars'].apply(classificar)
+    fig = go.Figure()
     
-    # Cria dataframe agrupado para o Plotly
-    cont_a = df_a['tipo'].value_counts().reset_index()
-    cont_a['Empresa'] = nome_a
+    # Você (Azul)
+    fig.add_trace(go.Bar(
+        y=[f"{i} ⭐" for i in stars_a.index], 
+        x=stars_a.values, 
+        name="Você", 
+        orientation='h',
+        marker_color='#2962FF',
+        text=stars_a.values,
+        textposition='auto'
+    ))
     
-    cont_b = df_b['tipo'].value_counts().reset_index()
-    cont_b['Empresa'] = nome_b
-    
-    full = pd.concat([cont_a, cont_b])
-    
-    fig = px.bar(full, x='tipo', y='count', color='Empresa', barmode='group',
-                 color_discrete_map={nome_a: '#4A90E2', nome_b: '#E24A4A'},
-                 category_orders={"tipo": ["Positivo", "Neutro", "Negativo"]})
-    
+    # Rival (Vermelho)
+    fig.add_trace(go.Bar(
+        y=[f"{i} ⭐" for i in stars_b.index], 
+        x=stars_b.values, 
+        name="Rival", 
+        orientation='h',
+        marker_color='#D50000',
+        text=stars_b.values,
+        textposition='auto'
+    ))
+
     fig.update_layout(
-        title="Comparativo de Sentimento",
-        xaxis_title=None,
-        yaxis_title="Qtd",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        title="Comparativo de Estrelas",
+        barmode='group',
         height=300,
-        margin=dict(l=10, r=10, t=50, b=10)
+        margin=dict(l=50, r=20, t=40, b=20),
+        xaxis=dict(showgrid=False, showticklabels=False), # Remove grade fundo
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     return fig
 
@@ -173,40 +167,26 @@ def configurar_gemini():
 
 model = configurar_gemini()
 
-def analisar_ia(texto_a, texto_b, nome_a, nome_b, criterio):
+def analisar_ia(texto_a, texto_b, nome_a, nome_b):
     prompt = f"""
-    Comparativo: {nome_a} vs {nome_b}. Foco: {criterio}.
+    Comparativo Rápido: {nome_a} vs {nome_b}.
     REVIEWS A: {texto_a[:3500]}
     REVIEWS B: {texto_b[:3500]}
     
-    Gere um relatório Executivo DETALHADO em Markdown:
-
-    # ⚔️ Relatório de Batalha
-
+    Responda em Markdown:
     ### 🏆 Veredito
-    (Parágrafo curto e direto sobre quem venceu)
-
-    ---
-    ### 🛡️ Análise de {nome_a}
-    **Pontos Fortes:**
+    (1 frase sobre quem ganha)
+    
+    ### 💎 Pontos Fortes ({nome_a})
     * (Item)
     * (Item)
     
-    **Pontos Fracos:**
+    ### ⚠️ Pontos Fracos ({nome_a})
     * (Item)
     * (Item)
 
-    ---
-    ### 🥊 Análise de {nome_b} (Concorrente)
-    **Onde ele ganha:**
-    * (Item)
-    
-    **Onde ele perde:**
-    * (Item)
-    
-    ---
-    ### 🚀 Plano de Ação (Consultoria)
-    (3 passos práticos para {nome_a} superar o concorrente amanhã)
+    ### 🚀 Plano de Ação
+    (Sugestão prática)
     """
     try:
         return model.generate_content(prompt).text
@@ -223,21 +203,29 @@ def get_ibge(tipo, uf=None):
     except: return []
 
 # ==========================================
-# INTERFACE
+# FLUXO DO APP
 # ==========================================
-with st.sidebar:
-    st.title("📱 Monitor V17")
-    st.caption("Mobile Ready")
-    menu = st.radio("Menu", ["🏠 Minha Empresa", "🥊 Meus Concorrentes", "⚡ Dashboard", "📂 Histórico"])
 
-# CADASTRO MINHA EMPRESA
-if menu == "🏠 Minha Empresa":
+# 1. MENU
+if st.session_state.tela_atual == "menu_principal":
+    st.title("Monitor Corp")
+    st.markdown("Bem-vindo! Escolha uma opção:")
+    
+    if st.button("⚡ DASHBOARD (Analisar)"): navegar_para("dashboard")
+    if st.button("🏠 MINHA EMPRESA"): navegar_para("minha_empresa")
+    if st.button("🥊 MEUS CONCORRENTES"): navegar_para("concorrentes")
+    if st.button("📂 HISTÓRICO"): navegar_para("historico")
+
+# 2. TELAS DE CADASTRO (IGUAIS)
+elif st.session_state.tela_atual == "minha_empresa":
+    st.markdown('<div class="btn-voltar">', unsafe_allow_html=True)
+    if st.button("⬅️ Menu"): navegar_para("menu_principal")
+    st.markdown('</div>', unsafe_allow_html=True)
     st.header("🏠 Minha Empresa")
     dados = st.session_state.db_empresas.get("minha_empresa")
     if dados:
         st.success(f"**{dados['title']}**")
-        st.caption(f"{dados.get('address', '')}")
-        if st.button("Trocar Empresa"):
+        if st.button("Trocar"):
             del st.session_state.db_empresas["minha_empresa"]
             salvar_json(DB_EMPRESAS, st.session_state.db_empresas)
             st.rerun()
@@ -245,7 +233,7 @@ if menu == "🏠 Minha Empresa":
         c1, c2 = st.columns(2)
         uf = c1.selectbox("UF", get_ibge("estados"), index=25)
         city = c1.selectbox("Cidade", get_ibge("cidades", uf))
-        nome = c2.text_input("Nome")
+        nome = st.text_input("Nome")
         if st.button("Buscar"):
             with st.spinner("Procurando..."):
                 res = buscar_locais_apify(f"{nome}, {city} - {uf}")
@@ -258,8 +246,10 @@ if menu == "🏠 Minha Empresa":
                 salvar_json(DB_EMPRESAS, st.session_state.db_empresas)
                 st.rerun()
 
-# CADASTRO RIVAL
-elif menu == "🥊 Meus Concorrentes":
+elif st.session_state.tela_atual == "concorrentes":
+    st.markdown('<div class="btn-voltar">', unsafe_allow_html=True)
+    if st.button("⬅️ Menu"): navegar_para("menu_principal")
+    st.markdown('</div>', unsafe_allow_html=True)
     st.header("🥊 Concorrentes")
     conc = st.session_state.db_empresas.get("concorrentes", [])
     if conc:
@@ -269,13 +259,12 @@ elif menu == "🥊 Meus Concorrentes":
             st.session_state.db_empresas["concorrentes"] = [c for c in conc if c['title'] != to_del]
             salvar_json(DB_EMPRESAS, st.session_state.db_empresas)
             st.rerun()
-    st.markdown("---")
-    st.subheader("Adicionar Novo")
+    st.subheader("Novo Concorrente")
     c1, c2 = st.columns(2)
     uf = c1.selectbox("UF", get_ibge("estados"), index=25, key='ufr')
     city = c1.selectbox("Cidade", get_ibge("cidades", uf), key='cidr')
-    nome = c2.text_input("Nome Rival")
-    if st.button("Buscar Rival"):
+    nome = st.text_input("Nome Rival")
+    if st.button("Buscar"):
         with st.spinner("Buscando..."):
             res = buscar_locais_apify(f"{nome}, {city} - {uf}")
             if res: st.session_state.busca_rival = res
@@ -288,25 +277,28 @@ elif menu == "🥊 Meus Concorrentes":
             salvar_json(DB_EMPRESAS, st.session_state.db_empresas)
             st.rerun()
 
-# --- ÁREA PRINCIPAL: DASHBOARD & RELATÓRIO ---
-elif menu == "⚡ Dashboard":
-    
-    # 1. TELA DE CONFIGURAÇÃO (Sempre visível se não tiver dados)
-    if st.session_state.modo_visualizacao == "dashboard" and st.session_state.dados_analise_atual is None:
-        st.title("⚡ Nova Análise")
+# 3. DASHBOARD (ANÁLISE)
+elif st.session_state.tela_atual == "dashboard":
+    st.markdown('<div class="btn-voltar">', unsafe_allow_html=True)
+    if st.button("⬅️ Voltar"): navegar_para("menu_principal")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # FORMULÁRIO DE CONFIGURAÇÃO
+    if st.session_state.dados_analise_atual is None:
+        st.title("Nova Análise")
         
-        c1, c2 = st.columns(2)
-        dt_ini = c1.date_input("De:", date.today().replace(day=1))
-        dt_fim = c2.date_input("Até:", date.today())
-        qtd_limite = st.slider("Qtd Reviews", 10, 100, 30)
+        c1, c2, c3 = st.columns(3)
+        dt_ini = c1.date_input("Início", date.today().replace(day=1))
+        dt_fim = c2.date_input("Fim", date.today())
+        qtd_limite = c3.slider("Qtd Reviews", 10, 100, 30)
         
         opts_a = []
         if st.session_state.db_empresas.get("minha_empresa"): opts_a.append(f"🏠 {st.session_state.db_empresas['minha_empresa']['title']}")
         for c in st.session_state.db_empresas.get("concorrentes", []): opts_a.append(f"🥊 {c['title']}")
         
-        col_sel1, col_sel2 = st.columns(2)
-        sel_a = col_sel1.selectbox("Você", opts_a)
-        sel_b = col_sel2.selectbox("Rival", [x for x in opts_a if x != sel_a])
+        c_sel_a, c_sel_b = st.columns(2)
+        sel_a = c_sel_a.selectbox("Você", opts_a)
+        sel_b = c_sel_b.selectbox("Rival", [x for x in opts_a if x != sel_a])
 
         def get_obj(txt):
             if "🏠" in txt: return st.session_state.db_empresas["minha_empresa"]
@@ -315,12 +307,12 @@ elif menu == "⚡ Dashboard":
                 if c['title'] == nome: return c
             return None
 
-        if st.button("🚀 GERAR RELATÓRIO", type="primary", use_container_width=True):
+        if st.button("🚀 GERAR PLACAR", type="primary"):
             obj_a = get_obj(sel_a)
             obj_b = get_obj(sel_b)
             
             if obj_a and obj_b:
-                with st.spinner("Conectando satélites... (Isso leva uns segundos)"):
+                with st.spinner("Processando números..."):
                     raw_a = baixar_reviews_apify(obj_a['url'], 150)
                     raw_b = baixar_reviews_apify(obj_b['url'], 150)
                     
@@ -328,7 +320,6 @@ elif menu == "⚡ Dashboard":
                         df_a = pd.DataFrame(raw_a.get('reviews', []))
                         df_b = pd.DataFrame(raw_b.get('reviews', []))
                         
-                        # Processamento
                         for df in [df_a, df_b]:
                             if not df.empty and 'publishAt' in df.columns:
                                 df['data_obj'] = df['publishAt'].apply(tratar_data_google)
@@ -336,25 +327,21 @@ elif menu == "⚡ Dashboard":
                                 df['data'] = df['data_obj'].dt.date
                                 df['stars'] = pd.to_numeric(df['stars'])
                         
-                        # Filtros
                         df_a = df_a[(df_a['data'] >= dt_ini) & (df_a['data'] <= dt_fim)].head(qtd_limite)
                         df_b = df_b[(df_b['data'] >= dt_ini) & (df_b['data'] <= dt_fim)].head(qtd_limite)
                         
                         if not df_a.empty and not df_b.empty:
-                            # IA
                             txt_a = "\n".join([f"({r['stars']}★) {r['text']}" for i, r in df_a.iterrows() if r['text']])
                             txt_b = "\n".join([f"({r['stars']}★) {r['text']}" for i, r in df_b.iterrows() if r['text']])
-                            analise = analisar_ia(txt_a, txt_b, obj_a['title'], obj_b['title'], "Geral")
+                            analise = analisar_ia(txt_a, txt_b, obj_a['title'], obj_b['title'])
                             
-                            # SALVAR NO ESTADO (PARA NÃO PERDER)
                             st.session_state.dados_analise_atual = {
                                 "df_a": df_a, "df_b": df_b,
                                 "nome_a": obj_a['title'], "nome_b": obj_b['title'],
                                 "analise": analise, "periodo": f"{dt_ini.strftime('%d/%m')} - {dt_fim.strftime('%d/%m')}"
                             }
                             
-                            # Salva histórico
-                            relatorio = {
+                            rel = {
                                 "id": datetime.now().strftime("%Y%m%d%H%M%S"),
                                 "data_geracao": datetime.now().strftime("%d/%m %H:%M"),
                                 "empresa_a": obj_a['title'], "empresa_b": obj_b['title'],
@@ -362,71 +349,97 @@ elif menu == "⚡ Dashboard":
                                 "nota_b_corte": float(df_b['stars'].mean()),
                                 "analise_ia": analise
                             }
-                            st.session_state.db_historico.insert(0, relatorio)
+                            st.session_state.db_historico.insert(0, rel)
                             salvar_json(DB_HISTORICO, st.session_state.db_historico)
-                            
-                            st.rerun() # Recarrega para mostrar o dashboard
-                        else:
-                            st.warning("Sem dados suficientes no período.")
+                            st.rerun()
+                        else: st.warning("Sem dados.")
 
-    # 2. TELA DE DASHBOARD VISUAL
-    elif st.session_state.modo_visualizacao == "dashboard" and st.session_state.dados_analise_atual:
+    # TELA DE RESULTADOS (CLEAN NUMBERS)
+    else:
         dados = st.session_state.dados_analise_atual
-        
-        # Botão Voltar para Nova Análise
-        if st.button("⬅️ Nova Pesquisa"):
+        if st.button("🔄 Nova Análise"):
             st.session_state.dados_analise_atual = None
             st.rerun()
             
-        st.divider()
+        # Cálculos
+        nota_a = dados['df_a']['stars'].mean()
+        nota_b = dados['df_b']['stars'].mean()
+        gap = nota_a - nota_b
         
-        # GAUGES (Lado a Lado no Desktop, Empilhado no Mobile se ficar pequeno)
+        # HTML SCOREBOARD (PLACAR)
+        st.markdown(f"""
+        <div class="score-container">
+            <div class="score-box">
+                <div class="score-lbl blue-text">VOCÊ</div>
+                <div class="score-val blue-text">{nota_a:.1f}</div>
+                <div class="score-lbl">{len(dados['df_a'])} reviews</div>
+            </div>
+            <div class="score-box" style="width: 10%;">
+                <div class="vs-text">VS</div>
+            </div>
+            <div class="score-box">
+                <div class="score-lbl red-text">RIVAL</div>
+                <div class="score-val red-text">{nota_b:.1f}</div>
+                <div class="score-lbl">{len(dados['df_b'])} reviews</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # GAP INDICATOR
+        if gap > 0: st.success(f"🏆 Você está **{gap:+.1f} pontos** acima do concorrente!")
+        elif gap < 0: st.error(f"🚨 Você está **{gap:+.1f} pontos** abaixo do concorrente!")
+        else: st.info("🤝 Empate técnico.")
+
+        # GRÁFICO ÚNICO (ESTRELAS)
+        st.subheader("Distribuição de Notas")
+        st.plotly_chart(criar_grafico_estrelas_horizontal(dados['df_a'], dados['df_b'], "Você", "Rival"), use_container_width=True)
+        
+        # NÚMEROS DE SENTIMENTO (CARDS SIMPLES)
+        st.subheader("Raio-X")
+        
+        # Conta Elogios (5) e Problemas (1-2)
+        elogios_a = len(dados['df_a'][dados['df_a']['stars'] == 5])
+        probs_a = len(dados['df_a'][dados['df_a']['stars'] <= 2])
+        
+        elogios_b = len(dados['df_b'][dados['df_b']['stars'] == 5])
+        probs_b = len(dados['df_b'][dados['df_b']['stars'] <= 2])
+        
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(criar_gauge(dados['df_a']['stars'].mean(), f"Você: {dados['nome_a'][:15]}...", "#4A90E2"), use_container_width=True)
+            st.markdown(f"**Você:**")
+            st.markdown(f"💎 **{elogios_a}** Elogios (5★)")
+            st.markdown(f"🤬 **{probs_a}** Reclamações (1-2★)")
         with c2:
-            st.plotly_chart(criar_gauge(dados['df_b']['stars'].mean(), f"Rival: {dados['nome_b'][:15]}...", "#E24A4A"), use_container_width=True)
-            
-        # PLACAR GAP
-        gap = dados['df_a']['stars'].mean() - dados['df_b']['stars'].mean()
-        cor_gap = "green" if gap > 0 else "red"
-        st.markdown(f"<h3 style='text-align: center; color: {cor_gap}'>Diferença: {gap:+.1f} pontos</h3>", unsafe_allow_html=True)
-        
-        # GRÁFICO BARRAS RESPONSIVO
-        st.plotly_chart(criar_barras_mobile(dados['df_a'], dados['df_b'], "Você", "Rival"), use_container_width=True)
-        
-        st.info("💡 Dica: Clique no botão abaixo para ler o que a IA descobriu.")
-        
-        # --- BOTÃO PARA IR PARA O RELATÓRIO COMPLETO ---
-        if st.button("📄 VER RELATÓRIO COMPLETO DETALHADO", type="primary", use_container_width=True):
-            st.session_state.modo_visualizacao = "relatorio"
-            st.rerun()
-
-    # 3. TELA DE RELATÓRIO DETALHADO (TEXTO)
-    elif st.session_state.modo_visualizacao == "relatorio" and st.session_state.dados_analise_atual:
-        dados = st.session_state.dados_analise_atual
-        
-        if st.button("⬅️ Voltar para Gráficos", use_container_width=True):
-            st.session_state.modo_visualizacao = "dashboard"
-            st.rerun()
+            st.markdown(f"**Rival:**")
+            st.markdown(f"💎 **{elogios_b}** Elogios (5★)")
+            st.markdown(f"🤬 **{probs_b}** Reclamações (1-2★)")
             
         st.markdown("---")
-        st.header("📑 Dossiê Completo")
-        st.caption(f"Período: {dados['periodo']}")
-        
-        # Exibe o texto da IA formatado
-        with st.container(border=True):
-            st.markdown(dados['analise'])
-        
-        st.subheader("🔎 Dados Brutos")
-        t1, t2 = st.tabs(["Seus Reviews", "Reviews Rival"])
-        with t1: st.dataframe(dados['df_a'][['stars', 'text', 'data']], use_container_width=True)
-        with t2: st.dataframe(dados['df_b'][['stars', 'text', 'data']], use_container_width=True)
+        if st.button("📄 VER DETALHES IA", type="primary"):
+            navegar_para("relatorio_detalhado")
 
+# 4. RELATÓRIO DETALHADO
+elif st.session_state.tela_atual == "relatorio_detalhado" and st.session_state.dados_analise_atual:
+    st.markdown('<div class="btn-voltar">', unsafe_allow_html=True)
+    if st.button("⬅️ Voltar"): navegar_para("dashboard")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    dados = st.session_state.dados_analise_atual
+    st.header("Análise IA")
+    with st.container(border=True):
+        st.markdown(dados['analise'])
+    
+    t1, t2 = st.tabs(["Seus Reviews", "Reviews Rival"])
+    with t1: st.dataframe(dados['df_a'][['stars', 'text', 'data']], use_container_width=True)
+    with t2: st.dataframe(dados['df_b'][['stars', 'text', 'data']], use_container_width=True)
 
-# --- HISTÓRICO ---
-elif menu == "📂 Histórico":
-    st.header("📂 Arquivo")
+# 5. HISTÓRICO
+elif st.session_state.tela_atual == "historico":
+    st.markdown('<div class="btn-voltar">', unsafe_allow_html=True)
+    if st.button("⬅️ Menu"): navegar_para("menu_principal")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.header("Histórico")
     if not st.session_state.db_historico: st.info("Vazio.")
     else:
         opcoes = [f"{r['data_geracao']} | {r['empresa_a']} vs {r['empresa_b']}" for r in st.session_state.db_historico]
