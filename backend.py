@@ -11,17 +11,20 @@ DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES (SEGURA - LÊ DOS SECRETS)
+# 🔐 ÁREA DE CHAVES
 # ==============================================================================
 def get_keys():
-    # Tenta ler do cofre do Streamlit (Nuvem)
+    # 1. Tenta pegar dos Secrets do Streamlit (Recomendado)
     try:
         apify = st.secrets["MY_APIFY_TOKEN"]
         gemini = st.secrets["MY_GEMINI_KEY"]
         return apify, gemini
-    except Exception:
-        # Se estiver rodando no seu PC sem secrets.toml, retorna erro ou vazio
-        return "", ""
+    except:
+        # 2. Se não tiver Secrets, use estas variáveis de fallback (Cuidado com GitHub!)
+        # Se você não configurou os Secrets, cole suas chaves aqui:
+        TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
+        KEY_GEMINI_FIXA = "AIzaSyBqEgzqsdvo-zMcVwjMLxM3H7ZAZJ4LosM" 
+        return TOKEN_APIFY_FIXO, KEY_GEMINI_FIXA
 
 MY_APIFY_TOKEN, MY_GEMINI_KEY = get_keys()
 
@@ -82,10 +85,53 @@ def baixar_reviews(url, max_reviews=100):
         return items[0]
     except: return None
 
-# --- IA (CONEXÃO DIRETA COM FALLBACK) ---
+# --- IA (AUTO-SCAN DE MODELOS) ---
+def descobrir_modelo_ativo(api_key):
+    """
+    Consulta a API do Google para saber quais modelos esta chave tem permissão de usar.
+    Retorna o nome exato do primeiro modelo compatível encontrado.
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        response = requests.get(url)
+        if response.status_code != 200:
+            return None, f"Erro ao listar modelos: {response.text}"
+        
+        dados = response.json()
+        modelos_disponiveis = dados.get('models', [])
+        
+        # Filtra apenas modelos que sabem gerar texto (generateContent)
+        candidatos = []
+        for m in modelos_disponiveis:
+            if 'generateContent' in m.get('supportedGenerationMethods', []):
+                # Remove o prefixo "models/" se existir, para usar na URL depois
+                nome_limpo = m['name'].replace("models/", "")
+                candidatos.append(nome_limpo)
+        
+        if not candidatos:
+            return None, "Nenhum modelo de texto disponível para esta chave."
+            
+        # Prioridade: Tenta achar o Flash ou Pro, senão pega o primeiro que vier
+        for c in candidatos:
+            if 'flash' in c: return c, None
+        for c in candidatos:
+            if 'pro' in c: return c, None
+            
+        return candidatos[0], None # Retorna o primeiro que achar
+        
+    except Exception as e:
+        return None, str(e)
+
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
-    if not MY_GEMINI_KEY: return "⚠️ Erro: Chaves não configuradas nos 'Secrets' do Streamlit."
+    if not MY_GEMINI_KEY: return "⚠️ Erro: Chave IA não configurada."
     
+    # 1. AUTO-SCAN: Descobre qual modelo usar
+    modelo_escolhido, erro_scan = descobrir_modelo_ativo(MY_GEMINI_KEY)
+    
+    if not modelo_escolhido:
+        return f"⚠️ Erro de Configuração IA: {erro_scan}. Verifique se a 'Generative Language API' está ativada no Google Cloud Console."
+
+    # 2. PREPARA O PROMPT
     prompt_text = f"""
     Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
     REVIEWS A: {texto_a[:3500]}
@@ -115,29 +161,22 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     (3 passos)
     """
 
-    # Tenta usar o modelo FLASH (Rápido), se falhar, tenta o PRO
-    modelos = ["gemini-1.5-flash", "gemini-pro"]
+    # 3. FAZ A CHAMADA USANDO O MODELO DESCOBERTO
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo_escolhido}:generateContent?key={MY_GEMINI_KEY}"
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt_text}]}]}
     
-    erros = []
-
-    for modelo in modelos:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={MY_GEMINI_KEY}"
+    try:
+        response = requests.post(url, headers=headers, json=data)
         
-        try:
-            response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            resultado = response.json()
+            try:
+                return resultado['candidates'][0]['content']['parts'][0]['text']
+            except:
+                return f"⚠️ A IA respondeu, mas o formato veio vazio. Modelo usado: {modelo_escolhido}"
+        else:
+            return f"⚠️ Erro na IA ({modelo_escolhido}): {response.status_code} - {response.text}"
             
-            if response.status_code == 200:
-                resultado = response.json()
-                try:
-                    return resultado['candidates'][0]['content']['parts'][0]['text']
-                except:
-                    erros.append(f"{modelo}: JSON inválido")
-            else:
-                erros.append(f"{modelo}: Erro {response.status_code} - {response.text}")
-                
-        except Exception as e:
-            erros.append(f"{modelo}: {str(e)}")
-
-    return f"⚠️ IA Indisponível. Detalhes: {'; '.join(erros)}"
+    except Exception as e:
+        return f"⚠️ Erro de Conexão: {str(e)}"
