@@ -3,4 +3,5 @@ pandas
 requests
 apify-client
 google-generativeai
+openai
 plotly
