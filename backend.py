@@ -3,7 +3,7 @@ import requests
 import json
 import os
 from apify_client import ApifyClient
-from openai import OpenAI
+import google.generativeai as genai # <--- VOLTAMOS PARA O GOOGLE
 from datetime import datetime, timedelta
 import streamlit as st
 
@@ -12,18 +12,19 @@ DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES (ATUALIZADA)
+# 🔐 ÁREA DE CHAVES (CONFIGURADAS)
 # ==============================================================================
-# NOVA CHAVE APIFY:
+
+# 1. CHAVE APIFY (Mantida a que funcionou)
 TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
 
-# SUA CHAVE OPENAI (Mantida a anterior):
-KEY_OPENAI_FIXA = "AIzaSyBzC0pjgmhKXUxrsDlO5eUPqZxfhg-gfXw"
+# 2. NOVA CHAVE GOOGLE GEMINI (Que você acabou de mandar)
+KEY_GEMINI_FIXA = "AIzaSyBzC0pjgmhKXUxrsDlO5eUPqZxfhg-gfXw"
 
 def get_keys():
-    return TOKEN_APIFY_FIXO, KEY_OPENAI_FIXA
+    return TOKEN_APIFY_FIXO, KEY_GEMINI_FIXA
 
-MY_APIFY_TOKEN, MY_OPENAI_KEY = get_keys()
+MY_APIFY_TOKEN, MY_GEMINI_KEY = get_keys()
 
 # --- DATABASE ---
 def carregar_dados(arquivo):
@@ -63,10 +64,10 @@ def get_ibge_locais(tipo, uf=None):
         return sorted([x['sigla' if tipo=='estados' else 'nome'] for x in r.json()])
     except: return []
 
-# --- APIFY (GOOGLE MAPS) ---
+# --- APIFY ---
 def buscar_locais(termo):
     if not MY_APIFY_TOKEN: 
-        st.error("❌ Erro: Chave Apify não configurada no backend.")
+        st.error("❌ Erro: Chave Apify não configurada.")
         return []
     
     client = ApifyClient(MY_APIFY_TOKEN)
@@ -79,7 +80,7 @@ def buscar_locais(termo):
         })
         return client.dataset(run['defaultDatasetId']).list_items().items
     except Exception as e:
-        st.error(f"❌ Erro ao Buscar Empresa (Apify): {e}")
+        st.error(f"❌ Erro Apify: {e}")
         return []
 
 def baixar_reviews(url, max_reviews=100):
@@ -89,37 +90,32 @@ def baixar_reviews(url, max_reviews=100):
     
     client = ApifyClient(MY_APIFY_TOKEN)
     try:
-        # Tenta rodar o scraper
         run = client.actor("compass/crawler-google-places").call(run_input={
             "startUrls": [{"url": url}], 
             "language": "pt-BR", 
             "maxReviews": max_reviews, 
             "reviewsSort": "newest"
         })
-        # Pega os resultados
         items = client.dataset(run['defaultDatasetId']).list_items().items
-        
-        if not items:
-            st.warning(f"⚠️ O Apify rodou mas não retornou dados para a URL: {url}")
-            return None
-            
+        if not items: st.warning("⚠️ Apify não retornou dados."); return None
         return items[0]
-        
     except Exception as e:
-        st.error(f"❌ ERRO CRÍTICO NO APIFY: {str(e)}")
+        st.error(f"❌ Erro Crítico Apify: {str(e)}")
         return None
 
-# --- IA (OPENAI / CHATGPT) ---
+# --- IA (GOOGLE GEMINI 1.5 FLASH) ---
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
-    if not MY_OPENAI_KEY: 
-        return "⚠️ Erro: Chave OpenAI não configurada."
+    if not MY_GEMINI_KEY: return "⚠️ Erro: Chave Google Gemini não configurada."
+    
+    # Configura para usar o Google
+    genai.configure(api_key=MY_GEMINI_KEY)
     
     try:
-        client = OpenAI(api_key=MY_OPENAI_KEY)
+        # Usa o modelo mais rápido e atual do Google
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        prompt_sistema = "Você é um Consultor Sênior de Estratégia Corporativa."
-        prompt_usuario = f"""
-        Comparativo: {nome_a} vs {nome_b}.
+        prompt = f"""
+        Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
         REVIEWS A: {texto_a[:3500]}
         REVIEWS B: {texto_b[:3500]}
         
@@ -147,14 +143,8 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
         (3 passos)
         """
         
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": prompt_sistema},
-                {"role": "user", "content": prompt_usuario}
-            ]
-        )
-        return response.choices[0].message.content
+        response = model.generate_content(prompt)
+        return response.text
         
     except Exception as e:
-        return f"⚠️ Erro na IA (OpenAI): {str(e)}"
+        return f"⚠️ Erro na IA (Google): {str(e)}"
