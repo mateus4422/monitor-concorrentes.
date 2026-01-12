@@ -147,15 +147,17 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
             resultado = response.json()
             try: return resultado['candidates'][0]['content']['parts'][0]['text']
             except: return "⚠️ IA respondeu vazio."
-        else: return f"⚠️ Erro IA: {response.status_code}"
+        else:
+            # MOSTRA O ERRO REAL (DIAGNÓSTICO)
+            return f"⚠️ Erro Google ({response.status_code}): {response.text}"
     except Exception as e: return f"⚠️ Erro Conexão: {str(e)}"
 
-# --- FUNÇÃO 2: GERADOR DE RESPOSTAS (NOVO) ---
+# --- FUNÇÃO 2: GERADOR DE RESPOSTAS (DIAGNÓSTICO ATIVADO) ---
 def gerar_sugestao_resposta(review_texto, estrelas, nome_empresa):
     if not MY_GEMINI_KEY: return "⚠️ Erro: Chave IA não configurada."
     
     modelo_escolhido, erro_scan = descobrir_modelo_ativo(MY_GEMINI_KEY)
-    if not modelo_escolhido: return "Erro na IA."
+    if not modelo_escolhido: return f"Erro na IA: {erro_scan}"
 
     prompt_text = f"""
     Você é o Gerente de Sucesso do Cliente da empresa '{nome_empresa}'.
@@ -184,6 +186,9 @@ def gerar_sugestao_resposta(review_texto, estrelas, nome_empresa):
         if response.status_code == 200:
             resultado = response.json()
             try: return resultado['candidates'][0]['content']['parts'][0]['text']
-            except: return "⚠️ Erro ao gerar texto."
-        else: return "⚠️ Erro na API."
-    except Exception as e: return f"⚠️ Erro: {str(e)}"
+            except: return "⚠️ Erro ao gerar texto (JSON inválido)."
+        else:
+            # MOSTRA O ERRO REAL AQUI
+            return f"⚠️ Erro Google ({response.status_code}): {response.text}"
+            
+    except Exception as e: return f"⚠️ Erro Python: {str(e)}"
