@@ -5,26 +5,25 @@ from datetime import date, datetime
 import backend as bk 
 
 # --- CONFIGURAÇÃO VISUAL ---
-st.set_page_config(page_title="Monitor Corp V32", page_icon="🏢", layout="wide")
+st.set_page_config(page_title="Monitor Corp V35", page_icon="🏢", layout="wide")
 
-# --- CSS PROFISSIONAL ---
 st.markdown("""
 <style>
     .block-container { padding-top: 2rem; }
-    .tutorial-step {
-        display: flex; align-items: flex-start; margin-bottom: 20px;
-        background: rgba(255,255,255,0.02); padding: 20px; border-radius: 12px;
-        border-left: 5px solid #2962FF; transition: all 0.3s ease;
-    }
-    .step-number {
-        background-color: #2962FF; color: white; width: 40px; height: 40px;
-        border-radius: 50%; text-align: center; line-height: 40px; font-weight: bold; font-size: 18px; margin-right: 20px; flex-shrink: 0;
-    }
     .kpi-box { background: rgba(255,255,255,0.05); border-radius: 10px; padding: 20px; text-align: center; }
     .kpi-val { font-size: 2.2rem; font-weight: 800; color: #fff; }
     .kpi-lbl { font-size: 0.9rem; text-transform: uppercase; color: #888; }
     div.stButton > button { width: 100%; border-radius: 8px; height: 50px; font-weight: 600; }
     div.stButton > button[kind="primary"] { background-color: #2962FF; color: white; border: none; }
+    /* Destaque para a resposta */
+    .resposta-box {
+        background-color: #e3f2fd;
+        color: #0d47a1;
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #2962FF;
+        margin-top: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -57,14 +56,8 @@ def render_grafico_comparativo(df_a, df_b):
 # 1. HOME
 # ==========================================
 if menu == "🏠 Início":
-    st.title("Bem-vindo ao Monitor Corporativo")
-    st.markdown("---")
-    st.subheader("📘 Guia Passo a Passo")
-    st.markdown("""
-    <div class="tutorial-step"><div class="step-number">1</div><div class="step-content"><h4>Configure sua Empresa</h4><p>Menu <b>"Minha Empresa"</b>.</p></div></div>
-    <div class="tutorial-step"><div class="step-number">2</div><div class="step-content"><h4>Cadastre Concorrentes</h4><p>Menu <b>"Concorrentes"</b>.</p></div></div>
-    <div class="tutorial-step"><div class="step-number">3</div><div class="step-content"><h4>Gere Inteligência</h4><p>Menu <b>"Painel de Análise"</b>.</p></div></div>
-    """, unsafe_allow_html=True)
+    st.title("Monitor Corporativo")
+    st.info("Bem-vindo! Configure sua empresa no menu lateral para começar.")
 
 # ==========================================
 # 2. DASHBOARD
@@ -103,7 +96,7 @@ elif menu == "📊 Painel de Análise":
                         obj_a = get_obj(sel_a)
                         obj_b = get_obj(sel_b)
                         
-                        with st.spinner("Processando dados..."):
+                        with st.spinner("Analisando dados..."):
                             raw_a = bk.baixar_reviews(obj_a['url'], 150)
                             raw_b = bk.baixar_reviews(obj_b['url'], 150)
                             
@@ -156,7 +149,7 @@ elif menu == "📊 Painel de Análise":
         with c_kpi3: st.markdown(f"""<div class="kpi-box"><div class="kpi-lbl" style="color:#546E7A">CONCORRENTE</div><div class="kpi-val">{nota_b:.2f}</div><div class="kpi-lbl">{len(dados['df_b'])} reviews</div></div>""", unsafe_allow_html=True)
             
         st.markdown("###")
-        t1, t2, t3, t4 = st.tabs(["📊 Visão Geral", "☁️ Nuvem de Palavras", "📑 Relatório IA", "🔎 Dados Brutos"])
+        t1, t2, t3, t4 = st.tabs(["📊 Visão Geral", "💬 Responder Reviews", "📑 Relatório IA", "🔎 Dados Brutos"])
         
         with t1:
             try:
@@ -166,20 +159,43 @@ elif menu == "📊 Painel de Análise":
             render_grafico_comparativo(dados['df_a'], dados['df_b'])
             
         with t2:
-            c_nuv1, c_nuv2 = st.columns(2)
-            with c_nuv1:
-                st.subheader(f"💬 {dados['nome_a']}")
-                txt_full_a = " ".join([t for t in dados['df_a']['text'] if t])
-                fig_a = bk.gerar_nuvem_palavras(txt_full_a)
-                if fig_a: st.pyplot(fig_a)
-                else: st.info("Pouco texto para gerar nuvem.")
+            st.subheader("Gerador de Respostas Inteligentes")
+            st.info("Selecione um review abaixo e deixe a IA escrever a resposta para você.")
+            
+            df_reclamacoes = dados['df_a'].copy()
+            
+            # Filtro para facilitar
+            so_ruins = st.checkbox("Mostrar apenas notas baixas (1-3 estrelas)")
+            if so_ruins:
+                df_reclamacoes = df_reclamacoes[df_reclamacoes['stars'] <= 3]
+            
+            if df_reclamacoes.empty:
+                st.success("Nenhum review encontrado com esses filtros! 🎉")
+            else:
+                # Cria lista de opções para o Selectbox
+                opcoes = {f"{r['data']} ({r['stars']}⭐): {r['text'][:50]}...": i for i, r in df_reclamacoes.iterrows()}
+                escolha = st.selectbox("Selecione o Review:", list(opcoes.keys()))
                 
-            with c_nuv2:
-                st.subheader(f"💬 {dados['nome_b']}")
-                txt_full_b = " ".join([t for t in dados['df_b']['text'] if t])
-                fig_b = bk.gerar_nuvem_palavras(txt_full_b)
-                if fig_b: st.pyplot(fig_b)
-                else: st.info("Pouco texto para gerar nuvem.")
+                if escolha:
+                    idx = opcoes[escolha]
+                    review_selecionado = df_reclamacoes.loc[idx]
+                    
+                    st.markdown(f"**Cliente disse:** _{review_selecionado['text']}_")
+                    
+                    if st.button("✨ Gerar Sugestão de Resposta"):
+                        with st.spinner("Escrevendo resposta..."):
+                            resposta = bk.gerar_sugestao_resposta(
+                                review_selecionado['text'], 
+                                review_selecionado['stars'], 
+                                dados['nome_a']
+                            )
+                            st.markdown(f"""
+                            <div class="resposta-box">
+                                <b>Sugestão da IA:</b><br><br>
+                                {resposta}
+                            </div>
+                            """, unsafe_allow_html=True)
+                            st.caption("Copie o texto acima e cole no Google Meu Negócio.")
                 
         with t3:
             with st.container(border=True): st.markdown(dados['analise'])
