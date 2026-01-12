@@ -5,23 +5,23 @@ import os
 from apify_client import ApifyClient
 from datetime import datetime, timedelta
 import streamlit as st
+from wordcloud import WordCloud, STOPWORDS
+import matplotlib.pyplot as plt
 
 # --- CONFIGURAÇÕES ---
 DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES
+# 🔐 ÁREA DE CHAVES (MANTIDA V31)
 # ==============================================================================
 def get_keys():
-    # 1. Tenta pegar dos Secrets do Streamlit (Recomendado)
     try:
         apify = st.secrets["MY_APIFY_TOKEN"]
         gemini = st.secrets["MY_GEMINI_KEY"]
         return apify, gemini
     except:
-        # 2. Se não tiver Secrets, use estas variáveis de fallback (Cuidado com GitHub!)
-        # Se você não configurou os Secrets, cole suas chaves aqui:
+        # FALLBACK PARA TESTES LOCAIS
         TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
         KEY_GEMINI_FIXA = "AIzaSyBqEgzqsdvo-zMcVwjMLxM3H7ZAZJ4LosM" 
         return TOKEN_APIFY_FIXO, KEY_GEMINI_FIXA
@@ -85,53 +85,51 @@ def baixar_reviews(url, max_reviews=100):
         return items[0]
     except: return None
 
-# --- IA (AUTO-SCAN DE MODELOS) ---
+# --- VISUAL (NOVO: NUVEM DE PALAVRAS) ---
+def gerar_nuvem_palavras(texto):
+    if not texto or len(texto) < 10: return None
+    
+    # Lista de palavras para ignorar (Stopwords PT-BR)
+    ignoradas = set(STOPWORDS)
+    ignoradas.update(["de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "é", "com", "não", "uma", "os", "no", "se", "na", "por", "mais", "as", "dos", "como", "mas", "foi", "ao", "ele", "das", "tem", "à", "seu", "sua", "ou", "ser", "quando", "muito", "nos", "já", "está", "eu", "também", "só", "pelo", "pela", "até", "isso", "ela", "entre", "era", "depois", "sem", "mesmo", "aos", "ter", "seus", "quem", "nas", "me", "esse", "eles", "estão", "você", "tinha", "foram", "essa", "num", "nem", "suas", "meu", "às", "minha", "têm", "numa", "pelos", "elas", "havia", "seja", "qual", "será", "nós", "tenho", "lhe", "deles", "essas", "esses", "pelas", "este", "fosse", "dele", "tu", "te", "vocês", "vos", "lhes", "meus", "minhas", "teu", "tua", "teus", "tuas", "nosso", "nossa", "nossos", "nossas", "dela", "delas", "esta", "estes", "estas", "aquele", "aquela", "aqueles", "aquelas", "isto", "aquilo"])
+
+    try:
+        wordcloud = WordCloud(width=800, height=400, background_color='black', stopwords=ignoradas, min_font_size=10).generate(texto)
+        
+        # Transforma em imagem para o Streamlit
+        fig, ax = plt.subplots(figsize=(10, 5), facecolor='k')
+        ax.imshow(wordcloud)
+        ax.axis("off")
+        plt.tight_layout(pad=0)
+        return fig
+    except:
+        return None
+
+# --- IA (AUTO-SCAN) ---
 def descobrir_modelo_ativo(api_key):
-    """
-    Consulta a API do Google para saber quais modelos esta chave tem permissão de usar.
-    Retorna o nome exato do primeiro modelo compatível encontrado.
-    """
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     try:
         response = requests.get(url)
-        if response.status_code != 200:
-            return None, f"Erro ao listar modelos: {response.text}"
-        
+        if response.status_code != 200: return None, f"Erro ao listar: {response.text}"
         dados = response.json()
-        modelos_disponiveis = dados.get('models', [])
-        
-        # Filtra apenas modelos que sabem gerar texto (generateContent)
         candidatos = []
-        for m in modelos_disponiveis:
+        for m in dados.get('models', []):
             if 'generateContent' in m.get('supportedGenerationMethods', []):
-                # Remove o prefixo "models/" se existir, para usar na URL depois
-                nome_limpo = m['name'].replace("models/", "")
-                candidatos.append(nome_limpo)
-        
-        if not candidatos:
-            return None, "Nenhum modelo de texto disponível para esta chave."
-            
-        # Prioridade: Tenta achar o Flash ou Pro, senão pega o primeiro que vier
+                candidatos.append(m['name'].replace("models/", ""))
+        if not candidatos: return None, "Sem modelos disponíveis."
         for c in candidatos:
             if 'flash' in c: return c, None
         for c in candidatos:
             if 'pro' in c: return c, None
-            
-        return candidatos[0], None # Retorna o primeiro que achar
-        
-    except Exception as e:
-        return None, str(e)
+        return candidatos[0], None
+    except Exception as e: return None, str(e)
 
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     if not MY_GEMINI_KEY: return "⚠️ Erro: Chave IA não configurada."
     
-    # 1. AUTO-SCAN: Descobre qual modelo usar
     modelo_escolhido, erro_scan = descobrir_modelo_ativo(MY_GEMINI_KEY)
-    
-    if not modelo_escolhido:
-        return f"⚠️ Erro de Configuração IA: {erro_scan}. Verifique se a 'Generative Language API' está ativada no Google Cloud Console."
+    if not modelo_escolhido: return f"⚠️ Config IA: {erro_scan}"
 
-    # 2. PREPARA O PROMPT
     prompt_text = f"""
     Atue como Consultor Sênior. Comparativo: {nome_a} vs {nome_b}.
     REVIEWS A: {texto_a[:3500]}
@@ -160,23 +158,16 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     ### 🚀 Plano de Ação
     (3 passos)
     """
-
-    # 3. FAZ A CHAMADA USANDO O MODELO DESCOBERTO
+    
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo_escolhido}:generateContent?key={MY_GEMINI_KEY}"
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt_text}]}]}
     
     try:
         response = requests.post(url, headers=headers, json=data)
-        
         if response.status_code == 200:
             resultado = response.json()
-            try:
-                return resultado['candidates'][0]['content']['parts'][0]['text']
-            except:
-                return f"⚠️ A IA respondeu, mas o formato veio vazio. Modelo usado: {modelo_escolhido}"
-        else:
-            return f"⚠️ Erro na IA ({modelo_escolhido}): {response.status_code} - {response.text}"
-            
-    except Exception as e:
-        return f"⚠️ Erro de Conexão: {str(e)}"
+            try: return resultado['candidates'][0]['content']['parts'][0]['text']
+            except: return f"⚠️ IA respondeu vazio. Modelo: {modelo_escolhido}"
+        else: return f"⚠️ Erro IA ({modelo_escolhido}): {response.status_code}"
+    except Exception as e: return f"⚠️ Erro Conexão: {str(e)}"
