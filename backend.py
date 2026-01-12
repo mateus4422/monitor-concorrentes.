@@ -5,15 +5,13 @@ import os
 from apify_client import ApifyClient
 from datetime import datetime, timedelta
 import streamlit as st
-from wordcloud import WordCloud, STOPWORDS
-import matplotlib.pyplot as plt
 
 # --- CONFIGURAÇÕES ---
 DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES (MANTIDA V31)
+# 🔐 ÁREA DE CHAVES
 # ==============================================================================
 def get_keys():
     try:
@@ -21,7 +19,6 @@ def get_keys():
         gemini = st.secrets["MY_GEMINI_KEY"]
         return apify, gemini
     except:
-        # FALLBACK PARA TESTES LOCAIS
         TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
         KEY_GEMINI_FIXA = "AIzaSyBqEgzqsdvo-zMcVwjMLxM3H7ZAZJ4LosM" 
         return TOKEN_APIFY_FIXO, KEY_GEMINI_FIXA
@@ -85,26 +82,6 @@ def baixar_reviews(url, max_reviews=100):
         return items[0]
     except: return None
 
-# --- VISUAL (NOVO: NUVEM DE PALAVRAS) ---
-def gerar_nuvem_palavras(texto):
-    if not texto or len(texto) < 10: return None
-    
-    # Lista de palavras para ignorar (Stopwords PT-BR)
-    ignoradas = set(STOPWORDS)
-    ignoradas.update(["de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "é", "com", "não", "uma", "os", "no", "se", "na", "por", "mais", "as", "dos", "como", "mas", "foi", "ao", "ele", "das", "tem", "à", "seu", "sua", "ou", "ser", "quando", "muito", "nos", "já", "está", "eu", "também", "só", "pelo", "pela", "até", "isso", "ela", "entre", "era", "depois", "sem", "mesmo", "aos", "ter", "seus", "quem", "nas", "me", "esse", "eles", "estão", "você", "tinha", "foram", "essa", "num", "nem", "suas", "meu", "às", "minha", "têm", "numa", "pelos", "elas", "havia", "seja", "qual", "será", "nós", "tenho", "lhe", "deles", "essas", "esses", "pelas", "este", "fosse", "dele", "tu", "te", "vocês", "vos", "lhes", "meus", "minhas", "teu", "tua", "teus", "tuas", "nosso", "nossa", "nossos", "nossas", "dela", "delas", "esta", "estes", "estas", "aquele", "aquela", "aqueles", "aquelas", "isto", "aquilo"])
-
-    try:
-        wordcloud = WordCloud(width=800, height=400, background_color='black', stopwords=ignoradas, min_font_size=10).generate(texto)
-        
-        # Transforma em imagem para o Streamlit
-        fig, ax = plt.subplots(figsize=(10, 5), facecolor='k')
-        ax.imshow(wordcloud)
-        ax.axis("off")
-        plt.tight_layout(pad=0)
-        return fig
-    except:
-        return None
-
 # --- IA (AUTO-SCAN) ---
 def descobrir_modelo_ativo(api_key):
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
@@ -124,6 +101,7 @@ def descobrir_modelo_ativo(api_key):
         return candidatos[0], None
     except Exception as e: return None, str(e)
 
+# --- FUNÇÃO 1: ANÁLISE COMPARATIVA ---
 def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     if not MY_GEMINI_KEY: return "⚠️ Erro: Chave IA não configurada."
     
@@ -138,12 +116,12 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
     Gere relatório em Markdown:
     ### 📊 Radar (Tags Rápidas)
     **{nome_a}**
-    * 👍 Positivo: (3 tags)
-    * 👎 Negativo: (3 tags)
+    * 👍 Positivo: (3 tags curtas)
+    * 👎 Negativo: (3 tags curtas)
     
     **{nome_b}**
-    * 👍 Positivo: (3 tags)
-    * 👎 Negativo: (3 tags)
+    * 👍 Positivo: (3 tags curtas)
+    * 👎 Negativo: (3 tags curtas)
 
     ---
     ### 🏆 Veredito
@@ -168,6 +146,44 @@ def gerar_analise_ia(texto_a, texto_b, nome_a, nome_b):
         if response.status_code == 200:
             resultado = response.json()
             try: return resultado['candidates'][0]['content']['parts'][0]['text']
-            except: return f"⚠️ IA respondeu vazio. Modelo: {modelo_escolhido}"
-        else: return f"⚠️ Erro IA ({modelo_escolhido}): {response.status_code}"
+            except: return "⚠️ IA respondeu vazio."
+        else: return f"⚠️ Erro IA: {response.status_code}"
     except Exception as e: return f"⚠️ Erro Conexão: {str(e)}"
+
+# --- FUNÇÃO 2: GERADOR DE RESPOSTAS (NOVO) ---
+def gerar_sugestao_resposta(review_texto, estrelas, nome_empresa):
+    if not MY_GEMINI_KEY: return "⚠️ Erro: Chave IA não configurada."
+    
+    modelo_escolhido, erro_scan = descobrir_modelo_ativo(MY_GEMINI_KEY)
+    if not modelo_escolhido: return "Erro na IA."
+
+    prompt_text = f"""
+    Você é o Gerente de Sucesso do Cliente da empresa '{nome_empresa}'.
+    
+    TAREFA: Escreva uma resposta profissional e humanizada para este review recebido no Google.
+    
+    DADOS DO REVIEW:
+    Nota: {estrelas} Estrelas
+    Comentário do Cliente: "{review_texto}"
+    
+    DIRETRIZES:
+    1. Se for crítica (1-3 estrelas): Peça desculpas, mostre empatia, não dê desculpas esfarrapadas e convide para uma nova chance.
+    2. Se for elogio (4-5 estrelas): Agradeça com entusiasmo e convide para voltar.
+    3. Seja breve e cordial.
+    4. Responda em Português do Brasil.
+    
+    Gere apenas o texto da resposta, pronto para copiar e colar.
+    """
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo_escolhido}:generateContent?key={MY_GEMINI_KEY}"
+    headers = {'Content-Type': 'application/json'}
+    data = {"contents": [{"parts": [{"text": prompt_text}]}]}
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            resultado = response.json()
+            try: return resultado['candidates'][0]['content']['parts'][0]['text']
+            except: return "⚠️ Erro ao gerar texto."
+        else: return "⚠️ Erro na API."
+    except Exception as e: return f"⚠️ Erro: {str(e)}"
