@@ -5,9 +5,8 @@ import os
 from apify_client import ApifyClient
 from datetime import datetime, timedelta
 import streamlit as st
-# --- CORREÇÃO IMPORTANTE PARA SERVIDORES ---
 import matplotlib
-matplotlib.use('Agg') # Força o modo "sem tela" para não travar o servidor
+matplotlib.use('Agg') # Segurança para servidores
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud, STOPWORDS
 
@@ -24,7 +23,6 @@ def get_keys():
         gemini = st.secrets["MY_GEMINI_KEY"]
         return apify, gemini
     except:
-        # Fallback para teste local se não tiver secrets
         TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
         KEY_GEMINI_FIXA = "AIzaSyBqEgzqsdvo-zMcVwjMLxM3H7ZAZJ4LosM" 
         return TOKEN_APIFY_FIXO, KEY_GEMINI_FIXA
@@ -88,27 +86,40 @@ def baixar_reviews(url, max_reviews=100):
         return items[0]
     except: return None
 
-# --- VISUAL (NUVEM DE PALAVRAS) ---
+# --- VISUAL (NUVEM DE PALAVRAS LIMPA) ---
 def gerar_nuvem_palavras(texto):
-    # Se o texto for vazio ou muito curto, não gera nada
     if not texto or len(texto) < 10: return None
     
-    # Lista de palavras inúteis (Stopwords) para limpar a nuvem
+    # Lista padrão (Inglês)
     ignoradas = set(STOPWORDS)
-    ignoradas.update(["de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "é", "com", "não", "uma", "os", "no", "se", "na", "por", "mais", "as", "dos", "como", "mas", "foi", "ao", "ele", "das", "tem", "à", "seu", "sua", "ou", "ser", "quando", "muito", "nos", "já", "está", "eu", "também", "só", "pelo", "pela", "até", "isso", "ela", "entre", "era", "depois", "sem", "mesmo", "aos", "ter", "seus", "quem", "nas", "me", "esse", "eles", "estão", "você", "tinha", "foram", "essa", "num", "nem", "suas", "meu", "às", "minha", "têm", "numa", "pelos", "elas", "havia", "seja", "qual", "será", "nós", "tenho", "lhe", "deles", "essas", "esses", "pelas", "este", "fosse", "dele", "tu", "te", "vocês", "vos", "lhes", "meus", "minhas", "teu", "tua", "teus", "tuas", "nosso", "nossa", "nossos", "nossas", "dela", "delas", "esta", "estes", "estas", "aquele", "aquela", "aqueles", "aquelas", "isto", "aquilo", "estava", "fomos", "lugar", "local", "atendimento", "comida"])
+    
+    # NOSSA LISTA AGRESSIVA DE PORTUGUÊS (Adicione mais aqui se precisar)
+    palavras_pt = [
+        # Básico
+        "de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "é", "com", "não", "uma", "os", "no", "se", "na", "por", "mais", "as", "dos", "como", "mas", "foi", "ao", "ele", "das", "tem", "à", "seu", "sua", "ou", "ser", "quando", "muito", "nos", "já", "está", "eu", "também", "só", "pelo", "pela", "até", "isso", "ela", "entre", "era", "depois", "sem", "mesmo", "aos", "ter", "seus", "quem", "nas", "me", "esse", "eles", "estão", "você", "tinha", "foram", "essa", "num", "nem", "suas", "meu", "às", "minha", "têm", "numa", "pelos", "elas", "havia", "seja", "qual", "será", "nós", "tenho", "lhe", "deles", "essas", "esses", "pelas", "este", "fosse", "dele", "tu", "te", "vocês", "vos", "lhes", "meus", "minhas", "teu", "tua", "teus", "tuas", "nosso", "nossa", "nossos", "nossas", "dela", "delas", "esta", "estes", "estas", "aquele", "aquela", "aqueles", "aquelas", "isto", "aquilo",
+        # Gírias e Abreviações
+        "pra", "pro", "tá", "ta", "né", "ne", "vc", "vcs", "pq", "mto", "mt", "aí", "ai", "tava", "tbm", "eh", "sobre",
+        # Verbos de Ação comuns (que não são o produto)
+        "fui", "fomos", "fiz", "fizemos", "pedi", "pedimos", "chegou", "veio", "vai", "ia", "vão", "quer", "queria", "dizer", "falar", "falou", "disse", "amo", "amei", "gostei", "gostamos", "adoro", "adorei", "achei", "achamos", "ficar", "ficou", "ficamos", "voltar", "voltarei", "recomendo", "super",
+        # Lugar e Tempo
+        "aqui", "lá", "ali", "agora", "hoje", "ontem", "amanhã", "sempre", "nunca", "local", "lugar", "ambiente", "onde", "aonde",
+        # Nomes comuns (Para limpar funcionários) - Edite aqui se aparecerem outros
+        "maria", "josé", "joão", "pedro", "gabriel", "julia", "júlia", "isabela", "lucas", "matheus", "ana", "paulo", "atendente", "recepção", "garçom", "funcionário", "gerente", "dono"
+    ]
+    
+    ignoradas.update(palavras_pt)
 
     try:
-        # Cria a nuvem
-        wordcloud = WordCloud(width=800, height=400, background_color='black', stopwords=ignoradas, min_font_size=10).generate(texto)
+        # Gera a nuvem
+        wordcloud = WordCloud(width=800, height=400, background_color='black', stopwords=ignoradas, min_font_size=10, colormap='Pastel1').generate(texto)
         
-        # Converte para gráfico (Figura do Matplotlib)
         fig, ax = plt.subplots(figsize=(10, 5), facecolor='k')
-        ax.imshow(wordcloud)
-        ax.axis("off") # Remove bordas
+        ax.imshow(wordcloud, interpolation='bilinear')
+        ax.axis("off")
         plt.tight_layout(pad=0)
         return fig
     except Exception as e:
-        print(f"Erro na Nuvem: {e}")
+        print(f"Erro Nuvem: {e}")
         return None
 
 # --- IA (AUTO-SCAN) ---
