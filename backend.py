@@ -5,15 +5,18 @@ import os
 from apify_client import ApifyClient
 from datetime import datetime, timedelta
 import streamlit as st
-from wordcloud import WordCloud, STOPWORDS
+# --- CORREÇÃO IMPORTANTE PARA SERVIDORES ---
+import matplotlib
+matplotlib.use('Agg') # Força o modo "sem tela" para não travar o servidor
 import matplotlib.pyplot as plt
+from wordcloud import WordCloud, STOPWORDS
 
 # --- CONFIGURAÇÕES ---
 DB_EMPRESAS = "empresas.json"
 DB_HISTORICO = "historico.json"
 
 # ==============================================================================
-# 🔐 ÁREA DE CHAVES (MANTIDA V31)
+# 🔐 ÁREA DE CHAVES
 # ==============================================================================
 def get_keys():
     try:
@@ -21,7 +24,7 @@ def get_keys():
         gemini = st.secrets["MY_GEMINI_KEY"]
         return apify, gemini
     except:
-        # FALLBACK PARA TESTES LOCAIS
+        # Fallback para teste local se não tiver secrets
         TOKEN_APIFY_FIXO = "apify_api_RgXeXG5dKTgLN0US1LbDrNFDS9xJHY1eJK86"
         KEY_GEMINI_FIXA = "AIzaSyBqEgzqsdvo-zMcVwjMLxM3H7ZAZJ4LosM" 
         return TOKEN_APIFY_FIXO, KEY_GEMINI_FIXA
@@ -85,24 +88,27 @@ def baixar_reviews(url, max_reviews=100):
         return items[0]
     except: return None
 
-# --- VISUAL (NOVO: NUVEM DE PALAVRAS) ---
+# --- VISUAL (NUVEM DE PALAVRAS) ---
 def gerar_nuvem_palavras(texto):
+    # Se o texto for vazio ou muito curto, não gera nada
     if not texto or len(texto) < 10: return None
     
-    # Lista de palavras para ignorar (Stopwords PT-BR)
+    # Lista de palavras inúteis (Stopwords) para limpar a nuvem
     ignoradas = set(STOPWORDS)
-    ignoradas.update(["de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "é", "com", "não", "uma", "os", "no", "se", "na", "por", "mais", "as", "dos", "como", "mas", "foi", "ao", "ele", "das", "tem", "à", "seu", "sua", "ou", "ser", "quando", "muito", "nos", "já", "está", "eu", "também", "só", "pelo", "pela", "até", "isso", "ela", "entre", "era", "depois", "sem", "mesmo", "aos", "ter", "seus", "quem", "nas", "me", "esse", "eles", "estão", "você", "tinha", "foram", "essa", "num", "nem", "suas", "meu", "às", "minha", "têm", "numa", "pelos", "elas", "havia", "seja", "qual", "será", "nós", "tenho", "lhe", "deles", "essas", "esses", "pelas", "este", "fosse", "dele", "tu", "te", "vocês", "vos", "lhes", "meus", "minhas", "teu", "tua", "teus", "tuas", "nosso", "nossa", "nossos", "nossas", "dela", "delas", "esta", "estes", "estas", "aquele", "aquela", "aqueles", "aquelas", "isto", "aquilo"])
+    ignoradas.update(["de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "é", "com", "não", "uma", "os", "no", "se", "na", "por", "mais", "as", "dos", "como", "mas", "foi", "ao", "ele", "das", "tem", "à", "seu", "sua", "ou", "ser", "quando", "muito", "nos", "já", "está", "eu", "também", "só", "pelo", "pela", "até", "isso", "ela", "entre", "era", "depois", "sem", "mesmo", "aos", "ter", "seus", "quem", "nas", "me", "esse", "eles", "estão", "você", "tinha", "foram", "essa", "num", "nem", "suas", "meu", "às", "minha", "têm", "numa", "pelos", "elas", "havia", "seja", "qual", "será", "nós", "tenho", "lhe", "deles", "essas", "esses", "pelas", "este", "fosse", "dele", "tu", "te", "vocês", "vos", "lhes", "meus", "minhas", "teu", "tua", "teus", "tuas", "nosso", "nossa", "nossos", "nossas", "dela", "delas", "esta", "estes", "estas", "aquele", "aquela", "aqueles", "aquelas", "isto", "aquilo", "estava", "fomos", "lugar", "local", "atendimento", "comida"])
 
     try:
+        # Cria a nuvem
         wordcloud = WordCloud(width=800, height=400, background_color='black', stopwords=ignoradas, min_font_size=10).generate(texto)
         
-        # Transforma em imagem para o Streamlit
+        # Converte para gráfico (Figura do Matplotlib)
         fig, ax = plt.subplots(figsize=(10, 5), facecolor='k')
         ax.imshow(wordcloud)
-        ax.axis("off")
+        ax.axis("off") # Remove bordas
         plt.tight_layout(pad=0)
         return fig
-    except:
+    except Exception as e:
+        print(f"Erro na Nuvem: {e}")
         return None
 
 # --- IA (AUTO-SCAN) ---
