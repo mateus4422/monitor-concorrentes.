@@ -23,6 +23,7 @@ st.markdown("""
         border-radius: 10px;
         border-left: 5px solid #2962FF;
         margin-top: 10px;
+        font-family: sans-serif;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -118,6 +119,7 @@ elif menu == "📊 Painel de Análise":
                                     txt_a = "\n".join([f"({r['stars']}★) {r['text']}" for i, r in df_a.iterrows() if r['text']])
                                     txt_b = "\n".join([f"({r['stars']}★) {r['text']}" for i, r in df_b.iterrows() if r['text']])
                                     
+                                    # Gera análise (sem nuvem)
                                     analise = bk.gerar_analise_ia(txt_a, txt_b, obj_a['title'], obj_b['title'])
                                     
                                     st.session_state.dados_analise = {
@@ -128,6 +130,7 @@ elif menu == "📊 Painel de Análise":
                                     st.rerun()
                                 else: st.warning("Dados insuficientes no período.")
     else:
+        # TELA DE RESULTADOS
         dados = st.session_state.dados_analise
         c1, c2 = st.columns([4, 1])
         with c1: st.caption(f"Período: {dados['periodo']}")
@@ -149,6 +152,7 @@ elif menu == "📊 Painel de Análise":
         with c_kpi3: st.markdown(f"""<div class="kpi-box"><div class="kpi-lbl" style="color:#546E7A">CONCORRENTE</div><div class="kpi-val">{nota_b:.2f}</div><div class="kpi-lbl">{len(dados['df_b'])} reviews</div></div>""", unsafe_allow_html=True)
             
         st.markdown("###")
+        # ABAS NOVAS (Sem Nuvem, Com Resposta)
         t1, t2, t3, t4 = st.tabs(["📊 Visão Geral", "💬 Responder Reviews", "📑 Relatório IA", "🔎 Dados Brutos"])
         
         with t1:
@@ -172,7 +176,6 @@ elif menu == "📊 Painel de Análise":
             if df_reclamacoes.empty:
                 st.success("Nenhum review encontrado com esses filtros! 🎉")
             else:
-                # Cria lista de opções para o Selectbox
                 opcoes = {f"{r['data']} ({r['stars']}⭐): {r['text'][:50]}...": i for i, r in df_reclamacoes.iterrows()}
                 escolha = st.selectbox("Selecione o Review:", list(opcoes.keys()))
                 
@@ -189,12 +192,7 @@ elif menu == "📊 Painel de Análise":
                                 review_selecionado['stars'], 
                                 dados['nome_a']
                             )
-                            st.markdown(f"""
-                            <div class="resposta-box">
-                                <b>Sugestão da IA:</b><br><br>
-                                {resposta}
-                            </div>
-                            """, unsafe_allow_html=True)
+                            st.markdown(f"""<div class="resposta-box"><b>Sugestão da IA:</b><br><br>{resposta}</div>""", unsafe_allow_html=True)
                             st.caption("Copie o texto acima e cole no Google Meu Negócio.")
                 
         with t3:
