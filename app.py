@@ -5,31 +5,24 @@ from datetime import date, datetime
 import backend as bk 
 
 # --- CONFIGURAÇÃO VISUAL ---
-st.set_page_config(page_title="4b Spy Concorrent", page_icon="🏢", layout="wide")
+st.set_page_config(page_title="Monitor Corp V32", page_icon="🏢", layout="wide")
 
 # --- CSS PROFISSIONAL ---
 st.markdown("""
 <style>
     .block-container { padding-top: 2rem; }
-    
-    /* TUTORIAL STEPS */
     .tutorial-step {
         display: flex; align-items: flex-start; margin-bottom: 20px;
         background: rgba(255,255,255,0.02); padding: 20px; border-radius: 12px;
         border-left: 5px solid #2962FF; transition: all 0.3s ease;
     }
-    .tutorial-step:hover { background: rgba(255,255,255,0.04); transform: translateX(5px); }
     .step-number {
         background-color: #2962FF; color: white; width: 40px; height: 40px;
         border-radius: 50%; text-align: center; line-height: 40px; font-weight: bold; font-size: 18px; margin-right: 20px; flex-shrink: 0;
     }
-    
-    /* KPI BOXES */
     .kpi-box { background: rgba(255,255,255,0.05); border-radius: 10px; padding: 20px; text-align: center; }
     .kpi-val { font-size: 2.2rem; font-weight: 800; color: #fff; }
     .kpi-lbl { font-size: 0.9rem; text-transform: uppercase; color: #888; }
-
-    /* BOTÕES */
     div.stButton > button { width: 100%; border-radius: 8px; height: 50px; font-weight: 600; }
     div.stButton > button[kind="primary"] { background-color: #2962FF; color: white; border: none; }
 </style>
@@ -51,7 +44,6 @@ with st.sidebar:
     if empresa_ativa: st.success(f"Ativo: **{empresa_ativa['title']}**")
     else: st.warning("⚠️ Empresa não configurada")
 
-# --- FUNÇÃO GRÁFICA ---
 def render_grafico_comparativo(df_a, df_b):
     stars_a = df_a['stars'].value_counts().reindex(range(1, 6), fill_value=0)
     stars_b = df_b['stars'].value_counts().reindex(range(1, 6), fill_value=0)
@@ -62,20 +54,20 @@ def render_grafico_comparativo(df_a, df_b):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 1. HOME (TUTORIAL)
+# 1. HOME
 # ==========================================
 if menu == "🏠 Início":
     st.title("Bem-vindo ao Monitor Corporativo")
     st.markdown("---")
     st.subheader("📘 Guia Passo a Passo")
     st.markdown("""
-    <div class="tutorial-step"><div class="step-number">1</div><div class="step-content"><h4>Configure sua Empresa</h4><p>Acesse o menu lateral <b>"Minha Empresa"</b> e defina seu negócio principal.</p></div></div>
-    <div class="tutorial-step"><div class="step-number">2</div><div class="step-content"><h4>Cadastre Concorrentes</h4><p>Vá até <b>"Concorrentes"</b> e adicione as empresas rivais.</p></div></div>
-    <div class="tutorial-step"><div class="step-number">3</div><div class="step-content"><h4>Gere Inteligência</h4><p>No <b>"Painel de Análise"</b>, selecione o período e processe os dados com IA.</p></div></div>
+    <div class="tutorial-step"><div class="step-number">1</div><div class="step-content"><h4>Configure sua Empresa</h4><p>Menu <b>"Minha Empresa"</b>.</p></div></div>
+    <div class="tutorial-step"><div class="step-number">2</div><div class="step-content"><h4>Cadastre Concorrentes</h4><p>Menu <b>"Concorrentes"</b>.</p></div></div>
+    <div class="tutorial-step"><div class="step-number">3</div><div class="step-content"><h4>Gere Inteligência</h4><p>Menu <b>"Painel de Análise"</b>.</p></div></div>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. DASHBOARD (ANÁLISE)
+# 2. DASHBOARD
 # ==========================================
 elif menu == "📊 Painel de Análise":
     st.title("Painel de Inteligência")
@@ -98,9 +90,7 @@ elif menu == "📊 Painel de Análise":
                 opcoes_b = [x for x in opts if x != sel_a]
                 sel_b = c_sel2.selectbox("Concorrente", opcoes_b if opcoes_b else ["Sem opções"])
                 
-                submit = st.form_submit_button("🚀 INICIAR PROCESSAMENTO")
-                
-                if submit:
+                if st.form_submit_button("🚀 INICIAR PROCESSAMENTO"):
                     if not opcoes_b: st.error("Cadastre concorrentes primeiro.")
                     else:
                         def get_obj(txt):
@@ -113,7 +103,7 @@ elif menu == "📊 Painel de Análise":
                         obj_a = get_obj(sel_a)
                         obj_b = get_obj(sel_b)
                         
-                        with st.spinner("Conectando aos satélites..."):
+                        with st.spinner("Processando dados..."):
                             raw_a = bk.baixar_reviews(obj_a['url'], 150)
                             raw_b = bk.baixar_reviews(obj_b['url'], 150)
                             
@@ -142,14 +132,6 @@ elif menu == "📊 Painel de Análise":
                                         "nome_a": obj_a['title'], "nome_b": obj_b['title'],
                                         "periodo": f"{dt_ini.strftime('%d/%m')} a {dt_fim.strftime('%d/%m')}"
                                     }
-                                    rel = {
-                                        "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                                        "empresa_a": obj_a['title'], "empresa_b": obj_b['title'],
-                                        "nota_a": float(df_a['stars'].mean()), "nota_b": float(df_b['stars'].mean()),
-                                        "analise_ia": analise
-                                    }
-                                    st.session_state.db_historico.insert(0, rel)
-                                    bk.salvar_dados(bk.DB_HISTORICO, st.session_state.db_historico)
                                     st.rerun()
                                 else: st.warning("Dados insuficientes no período.")
     else:
@@ -174,7 +156,7 @@ elif menu == "📊 Painel de Análise":
         with c_kpi3: st.markdown(f"""<div class="kpi-box"><div class="kpi-lbl" style="color:#546E7A">CONCORRENTE</div><div class="kpi-val">{nota_b:.2f}</div><div class="kpi-lbl">{len(dados['df_b'])} reviews</div></div>""", unsafe_allow_html=True)
             
         st.markdown("###")
-        t1, t2, t3 = st.tabs(["📊 Visão Geral", "📑 Relatório IA", "🔎 Dados Brutos"])
+        t1, t2, t3, t4 = st.tabs(["📊 Visão Geral", "☁️ Nuvem de Palavras", "📑 Relatório IA", "🔎 Dados Brutos"])
         
         with t1:
             try:
@@ -182,9 +164,26 @@ elif menu == "📊 Painel de Análise":
                 with st.container(border=True): st.markdown(tags)
             except: pass
             render_grafico_comparativo(dados['df_a'], dados['df_b'])
+            
         with t2:
-            with st.container(border=True): st.markdown(dados['analise'])
+            c_nuv1, c_nuv2 = st.columns(2)
+            with c_nuv1:
+                st.subheader(f"💬 {dados['nome_a']}")
+                txt_full_a = " ".join([t for t in dados['df_a']['text'] if t])
+                fig_a = bk.gerar_nuvem_palavras(txt_full_a)
+                if fig_a: st.pyplot(fig_a)
+                else: st.info("Pouco texto para gerar nuvem.")
+                
+            with c_nuv2:
+                st.subheader(f"💬 {dados['nome_b']}")
+                txt_full_b = " ".join([t for t in dados['df_b']['text'] if t])
+                fig_b = bk.gerar_nuvem_palavras(txt_full_b)
+                if fig_b: st.pyplot(fig_b)
+                else: st.info("Pouco texto para gerar nuvem.")
+                
         with t3:
+            with st.container(border=True): st.markdown(dados['analise'])
+        with t4:
             c1, c2 = st.columns(2)
             c1.dataframe(dados['df_a'][['stars','text','data']], use_container_width=True)
             c2.dataframe(dados['df_b'][['stars','text','data']], use_container_width=True)
